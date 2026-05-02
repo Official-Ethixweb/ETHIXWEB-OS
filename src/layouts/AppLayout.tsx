@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, FolderKanban, LayoutDashboard, LogOut, Plus, Search, Settings } from "lucide-react";
 import { useState } from "react";
@@ -27,6 +27,7 @@ const nav = [
 export default function AppLayout() {
   const me = useCurrentUser();
   const navigate = useNavigate();
+  const location = useLocation();
   const logout = useStore((s) => s.logout);
   const notifications = useStore((s) => s.notifications);
   const markAllRead = useStore((s) => s.markAllRead);

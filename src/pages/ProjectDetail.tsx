@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -438,7 +438,9 @@ function NewTaskDialog({
   });
 
   // sync default column when opened from a different column
-  useState(() => setForm((f) => ({ ...f, status: defaultStatus })));
+  useEffect(() => {
+    if (open) setForm((f) => ({ ...f, status: defaultStatus }));
+  }, [open, defaultStatus]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
