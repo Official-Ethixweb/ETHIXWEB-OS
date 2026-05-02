@@ -21,7 +21,7 @@ export interface UpdateTaskInput {
   dueDate?: string | null;
 }
 
-function toBackendTask<T extends Record<string, unknown>>(input: T) {
+function toBackendTask(input: Record<string, unknown>) {
   const out: Record<string, unknown> = { ...input };
   if ("projectId" in out) {
     out.project = out.projectId;
@@ -45,11 +45,11 @@ export const tasksApi = {
     return (data.tasks ?? []).map(normTask);
   },
   async create(input: CreateTaskInput): Promise<Task> {
-    const { data } = await api.post("/tasks", toBackendTask(input));
+    const { data } = await api.post("/tasks", toBackendTask(input as unknown as Record<string, unknown>));
     return normTask(data.task);
   },
   async update(id: string, patch: UpdateTaskInput): Promise<Task> {
-    const { data } = await api.patch(`/tasks/${id}`, toBackendTask(patch));
+    const { data } = await api.patch(`/tasks/${id}`, toBackendTask(patch as unknown as Record<string, unknown>));
     return normTask(data.task);
   },
   async remove(id: string): Promise<void> {
