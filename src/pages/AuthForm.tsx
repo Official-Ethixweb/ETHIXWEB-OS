@@ -6,8 +6,10 @@ import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useStore } from "@/store";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+import { apiErrorMessage } from "@/lib/api";
+import { Loader2 } from "lucide-react";
 
 interface AuthFormProps {
   mode: "login" | "signup";
@@ -23,15 +25,14 @@ const signupSchema = loginSchema.extend({
 
 export function AuthForm({ mode }: AuthFormProps) {
   const navigate = useNavigate();
-  const login = useStore((s) => s.login);
-  const signup = useStore((s) => s.signup);
+  const { login, signup } = useAuth();
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const isSignup = mode === "signup";
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const schema = isSignup ? signupSchema : loginSchema;
     const result = schema.safeParse(form);
@@ -45,11 +46,17 @@ export function AuthForm({ mode }: AuthFormProps) {
     }
     setErrors({});
     setLoading(true);
-    setTimeout(() => {
-      const user = isSignup ? signup(form.name, form.email, form.password) : login(form.email, form.password);
+    try {
+      const user = isSignup
+        ? await signup(form.name, form.email, form.password)
+        : await login(form.email, form.password);
       toast.success(isSignup ? `Welcome, ${user.name}!` : `Welcome back, ${user.name}!`);
       navigate("/app");
-    }, 350);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, isSignup ? "Could not create account" : "Could not sign in"));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -82,6 +89,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                     placeholder="Alex Rivera"
                     className="mt-1.5 bg-secondary/40 border-border/60 h-11"
+                    autoComplete="name"
                   />
                   {errors.name && <p className="text-xs text-destructive mt-1">{errors.name}</p>}
                 </div>
@@ -95,6 +103,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                   onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                   placeholder="you@company.com"
                   className="mt-1.5 bg-secondary/40 border-border/60 h-11"
+                  autoComplete="email"
                 />
                 {errors.email && <p className="text-xs text-destructive mt-1">{errors.email}</p>}
               </div>
@@ -107,6 +116,7 @@ export function AuthForm({ mode }: AuthFormProps) {
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   placeholder="••••••••"
                   className="mt-1.5 bg-secondary/40 border-border/60 h-11"
+                  autoComplete={isSignup ? "new-password" : "current-password"}
                 />
                 {errors.password && <p className="text-xs text-destructive mt-1">{errors.password}</p>}
               </div>
@@ -116,7 +126,11 @@ export function AuthForm({ mode }: AuthFormProps) {
                 disabled={loading}
                 className="w-full h-11 bg-gradient-primary hover:opacity-90 text-primary-foreground shadow-glow"
               >
-                {loading ? "Please wait…" : isSignup ? "Create account" : "Sign in"}
+                {loading ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Please wait…
+                  </span>
+                ) : isSignup ? "Create account" : "Sign in"}
               </Button>
             </form>
 
@@ -130,7 +144,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           </div>
         </div>
         <p className="text-[0.7rem] text-center text-muted-foreground mt-4">
-          Demo mode: any valid email + 6-char password works.
+          Connected to your TeamFlow API. Set <code>VITE_API_URL</code> to your backend URL.
         </p>
       </motion.div>
     </div>

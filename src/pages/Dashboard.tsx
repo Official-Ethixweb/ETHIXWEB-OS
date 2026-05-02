@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock,
   ListTodo,
+  Loader2,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -20,7 +21,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useCurrentUser, useStore } from "@/store";
+import { useAuth } from "@/context/AuthContext";
+import { useAllTasks } from "@/hooks/useAllTasks";
 import { UserAvatar } from "@/components/UserAvatar";
 import { formatDistanceToNow, isAfter } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -32,10 +34,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function Dashboard() {
-  const me = useCurrentUser();
-  const tasks = useStore((s) => s.tasks);
-  const projects = useStore((s) => s.projects);
-  const users = useStore((s) => s.users);
+  const { user: me } = useAuth();
+  const { projects, tasks, isLoading } = useAllTasks();
 
   const stats = useMemo(() => {
     const total = tasks.length;
@@ -64,7 +64,7 @@ export default function Dashboard() {
   const pieData = [
     { name: "Done", value: stats.done, color: "hsl(var(--success))" },
     { name: "In Progress", value: stats.inProgress, color: "hsl(var(--primary))" },
-    { name: "To Do", value: stats.total - stats.done - stats.inProgress, color: "hsl(var(--muted-foreground))" },
+    { name: "To Do", value: Math.max(stats.total - stats.done - stats.inProgress, 0), color: "hsl(var(--muted-foreground))" },
   ];
 
   const recentTasks = [...tasks].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 6);
@@ -85,6 +85,11 @@ export default function Dashboard() {
           </h1>
           <p className="text-muted-foreground mt-1">Here's what's flowing across your team today.</p>
         </div>
+        {isLoading && (
+          <div className="text-xs text-muted-foreground inline-flex items-center gap-2">
+            <Loader2 className="h-3 w-3 animate-spin" /> Syncing data…
+          </div>
+        )}
       </div>
 
       {/* Stat cards */}
@@ -111,128 +116,139 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Charts */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 glass rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="font-semibold">Tasks by project</div>
-              <div className="text-xs text-muted-foreground">Status breakdown across all active projects</div>
+      {projects.length === 0 && !isLoading ? (
+        <div className="glass rounded-3xl p-12 text-center">
+          <div className="font-semibold text-lg">No projects yet</div>
+          <div className="text-sm text-muted-foreground mt-1">Create your first project to see analytics here.</div>
+          <Link to="/app/projects?new=1" className="inline-block mt-5 px-4 py-2 rounded-xl bg-gradient-primary text-primary-foreground shadow-glow text-sm font-medium">Create project</Link>
+        </div>
+      ) : (
+        <>
+          {/* Charts */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="font-semibold">Tasks by project</div>
+                  <div className="text-xs text-muted-foreground">Status breakdown across all active projects</div>
+                </div>
+              </div>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={projectChart}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--popover))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 12,
+                        fontSize: 12,
+                      }}
+                    />
+                    <Bar dataKey="done" stackId="a" fill={STATUS_COLORS.done} radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="inProgress" stackId="a" fill={STATUS_COLORS.in_progress} />
+                    <Bar dataKey="todo" stackId="a" fill={STATUS_COLORS.todo} radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="glass rounded-2xl p-5">
+              <div className="font-semibold">Completion</div>
+              <div className="text-xs text-muted-foreground">Live progress overview</div>
+              <div className="h-56 mt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" innerRadius={50} outerRadius={80} paddingAngle={3}>
+                      {pieData.map((d) => <Cell key={d.name} fill={d.color} />)}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: "hsl(var(--popover))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 12,
+                        fontSize: 12,
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-1.5 mt-2">
+                {pieData.map((d) => (
+                  <div key={d.name} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: d.color }} />{d.name}</div>
+                    <span className="text-muted-foreground">{d.value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={projectChart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} />
-                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
-                />
-                <Bar dataKey="done" stackId="a" fill={STATUS_COLORS.done} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="inProgress" stackId="a" fill={STATUS_COLORS.in_progress} />
-                <Bar dataKey="todo" stackId="a" fill={STATUS_COLORS.todo} radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
 
-        <div className="glass rounded-2xl p-5">
-          <div className="font-semibold">Completion</div>
-          <div className="text-xs text-muted-foreground">Live progress overview</div>
-          <div className="h-56 mt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} dataKey="value" innerRadius={50} outerRadius={80} paddingAngle={3}>
-                  {pieData.map((d) => <Cell key={d.name} fill={d.color} />)}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    background: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="space-y-1.5 mt-2">
-            {pieData.map((d) => (
-              <div key={d.name} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: d.color }} />{d.name}</div>
-                <span className="text-muted-foreground">{d.value}</span>
+          {/* Recent activity + projects */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="font-semibold">Recent activity</div>
+                <Link to="/app/projects" className="text-xs text-primary-glow hover:underline">View projects</Link>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+              <div className="divide-y divide-border/60">
+                {recentTasks.length === 0 ? (
+                  <div className="text-sm text-muted-foreground py-6 text-center">No tasks yet.</div>
+                ) : recentTasks.map((t) => {
+                  const project = projects.find((p) => p.id === t.projectId);
+                  return (
+                    <Link
+                      key={t.id}
+                      to={`/app/projects/${t.projectId}`}
+                      className="flex items-center gap-3 py-3 hover:bg-secondary/30 -mx-2 px-2 rounded-lg transition-colors"
+                    >
+                      <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: `${project?.color}25`, color: project?.color }}>
+                        <Clock className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{t.title}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {project?.name} · {formatDistanceToNow(new Date(t.createdAt), { addSuffix: true })}
+                        </div>
+                      </div>
+                      <UserAvatar user={t.assignee ?? undefined} size={26} />
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
 
-      {/* Recent activity + projects */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 glass rounded-2xl p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="font-semibold">Recent activity</div>
-            <Link to="/app/projects" className="text-xs text-primary-glow hover:underline">View projects</Link>
+            <div className="glass rounded-2xl p-5">
+              <div className="font-semibold mb-4">Your projects</div>
+              <div className="space-y-2">
+                {projects.map((p) => {
+                  const pTasks = tasks.filter((t) => t.projectId === p.id);
+                  const done = pTasks.filter((t) => t.status === "done").length;
+                  const pct = pTasks.length ? Math.round((done / pTasks.length) * 100) : 0;
+                  return (
+                    <Link
+                      key={p.id}
+                      to={`/app/projects/${p.id}`}
+                      className="block rounded-xl p-3 bg-secondary/30 hover:bg-secondary/60 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
+                        <div className="text-sm font-medium truncate flex-1">{p.name}</div>
+                        <div className="text-xs text-muted-foreground">{pct}%</div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-background overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${p.color}, hsl(var(--primary-glow)))` }} />
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <div className="divide-y divide-border/60">
-            {recentTasks.map((t) => {
-              const project = projects.find((p) => p.id === t.projectId);
-              const assignee = users.find((u) => u.id === t.assigneeId);
-              return (
-                <Link
-                  key={t.id}
-                  to={`/app/projects/${t.projectId}`}
-                  className="flex items-center gap-3 py-3 hover:bg-secondary/30 -mx-2 px-2 rounded-lg transition-colors"
-                >
-                  <div className="h-9 w-9 rounded-lg grid place-items-center" style={{ background: `${project?.color}25`, color: project?.color }}>
-                    <Clock className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{t.title}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {project?.name} · {formatDistanceToNow(new Date(t.createdAt), { addSuffix: true })}
-                    </div>
-                  </div>
-                  <UserAvatar user={assignee} size={26} />
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="glass rounded-2xl p-5">
-          <div className="font-semibold mb-4">Your projects</div>
-          <div className="space-y-2">
-            {projects.map((p) => {
-              const pTasks = tasks.filter((t) => t.projectId === p.id);
-              const done = pTasks.filter((t) => t.status === "done").length;
-              const pct = pTasks.length ? Math.round((done / pTasks.length) * 100) : 0;
-              return (
-                <Link
-                  key={p.id}
-                  to={`/app/projects/${p.id}`}
-                  className="block rounded-xl p-3 bg-secondary/30 hover:bg-secondary/60 transition-colors"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
-                    <div className="text-sm font-medium truncate flex-1">{p.name}</div>
-                    <div className="text-xs text-muted-foreground">{pct}%</div>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-background overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${p.color}, hsl(var(--primary-glow)))` }} />
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

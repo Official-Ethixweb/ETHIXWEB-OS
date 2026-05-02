@@ -2,11 +2,12 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, FolderKanban, LayoutDashboard, LogOut, Plus, Search, Settings } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Logo } from "@/components/Logo";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useCurrentUser, useStore } from "@/store";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -18,6 +19,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDistanceToNow } from "date-fns";
+import { projectsApi } from "@/api/projects";
+import { useAllTasks } from "@/hooks/useAllTasks";
+import { useDerivedNotifications } from "@/hooks/useDerivedNotifications";
 
 const nav = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -25,15 +29,24 @@ const nav = [
 ];
 
 export default function AppLayout() {
-  const me = useCurrentUser();
+  const { user: me, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const logout = useStore((s) => s.logout);
-  const notifications = useStore((s) => s.notifications);
-  const markAllRead = useStore((s) => s.markAllRead);
-  const projects = useStore((s) => s.projects);
   const [query, setQuery] = useState("");
-  const unread = notifications.filter((n) => !n.read).length;
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ["projects"],
+    queryFn: projectsApi.list,
+  });
+
+  const { tasks } = useAllTasks();
+  const notifications = useDerivedNotifications(tasks, projects);
+  const unread = notifications.length;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/");
+  };
 
   return (
     <div className="min-h-screen flex">
@@ -98,10 +111,7 @@ export default function AppLayout() {
               <DropdownMenuSeparator />
               <DropdownMenuItem><Settings className="h-4 w-4 mr-2" />Settings</DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => {
-                  logout();
-                  navigate("/");
-                }}
+                onClick={handleLogout}
                 className="text-destructive focus:text-destructive"
               >
                 <LogOut className="h-4 w-4 mr-2" />Log out
@@ -134,7 +144,7 @@ export default function AppLayout() {
               >
                 <Plus className="h-4 w-4 mr-1" /> New Project
               </Button>
-              <Popover onOpenChange={(o) => o && markAllRead()}>
+              <Popover>
                 <PopoverTrigger asChild>
                   <button className="relative h-10 w-10 rounded-xl hover:bg-secondary/60 inline-flex items-center justify-center transition-colors">
                     <Bell className="h-4 w-4" />
@@ -153,7 +163,11 @@ export default function AppLayout() {
                       <div className="p-6 text-sm text-muted-foreground text-center">You're all caught up 🎉</div>
                     )}
                     {notifications.map((n) => (
-                      <div key={n.id} className="px-4 py-3 hover:bg-secondary/40 border-b border-border/40 last:border-0">
+                      <div
+                        key={n.id}
+                        className="px-4 py-3 hover:bg-secondary/40 border-b border-border/40 last:border-0 cursor-pointer"
+                        onClick={() => n.projectId && navigate(`/app/projects/${n.projectId}`)}
+                      >
                         <div className="flex items-start gap-2">
                           <span className={cn("mt-1.5 h-2 w-2 rounded-full shrink-0", n.type === "overdue" ? "bg-destructive" : "bg-primary")} />
                           <div className="flex-1 min-w-0">

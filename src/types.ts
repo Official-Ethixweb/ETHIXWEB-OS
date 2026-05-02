@@ -11,6 +11,7 @@ export interface User {
 
 export interface Member {
   userId: string;
+  user?: User; // populated by API
   role: Role;
 }
 
@@ -20,6 +21,8 @@ export interface Project {
   description: string;
   color: string;
   createdAt: string;
+  ownerId?: string;
+  owner?: User;
   members: Member[];
 }
 
@@ -28,10 +31,11 @@ export interface Task {
   projectId: string;
   title: string;
   description?: string;
-  assigneeId?: string;
+  assigneeId?: string | null;
+  assignee?: User | null;
   status: Status;
   priority: Priority;
-  dueDate?: string;
+  dueDate?: string | null;
   createdAt: string;
   order: number;
 }
