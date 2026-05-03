@@ -174,6 +174,17 @@ export default function ProjectDetail() {
     onError: (e) => toast.error(apiErrorMessage(e, "Could not remove member")),
   });
 
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: Role }) =>
+      projectsApi.updateMemberRole(projectId, userId, role),
+    onSuccess: (project) => {
+      qc.setQueryData(["project", projectId], { project, role: projectQuery.data?.role ?? "admin" });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Role updated");
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, "Could not update role")),
+  });
+
   const tasksByStatus = useMemo(() => {
     const grouped: Record<Status, Task[]> = { todo: [], in_progress: [], done: [] };
     [...tasks]
@@ -331,15 +342,33 @@ export default function ProjectDetail() {
           {project.members.map((m) => {
             const u = m.user;
             if (!u) return null;
+            const isOwner = m.userId === project.ownerId;
             return (
-              <div key={m.userId} className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-secondary/60">
+              <div key={m.userId} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full bg-secondary/60">
                 <UserAvatar user={u} size={24} />
                 <span className="text-sm">{u.name}</span>
-                <span className="text-[0.6rem] uppercase tracking-widest text-muted-foreground">{m.role}</span>
-                {isAdmin && m.userId !== me?.id && (
+                {isAdmin && !isOwner && m.userId !== me?.id ? (
+                  <Select
+                    value={m.role}
+                    onValueChange={(v) => updateRoleMutation.mutate({ userId: m.userId, role: v as Role })}
+                  >
+                    <SelectTrigger className="h-6 px-2 py-0 text-[0.6rem] uppercase tracking-widest border-0 bg-transparent hover:bg-background/40 w-auto gap-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className="text-[0.6rem] uppercase tracking-widest text-muted-foreground px-1">
+                    {isOwner ? "Owner" : m.role}
+                  </span>
+                )}
+                {isAdmin && !isOwner && m.userId !== me?.id && (
                   <button
                     onClick={() => removeMemberMutation.mutate(m.userId)}
-                    className="text-muted-foreground hover:text-destructive ml-1"
+                    className="text-muted-foreground hover:text-destructive ml-1 px-1"
                     aria-label={`Remove ${u.name}`}
                   >
                     ×
