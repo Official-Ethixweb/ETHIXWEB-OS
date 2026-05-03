@@ -45,8 +45,16 @@ export function setOnUnauthorized(handler: (() => void) | null) {
 }
 
 api.interceptors.response.use(
-  (r) => r,
-  (error: AxiosError<{ error?: string }>) => {
+  (r) => {
+    // Unwrap consistent envelope { success, data, message } if present.
+    // Falls back to raw payload for backwards-compat.
+    const body = r.data;
+    if (body && typeof body === "object" && "success" in body && "data" in body) {
+      r.data = (body as { data: unknown }).data;
+    }
+    return r;
+  },
+  (error: AxiosError<{ error?: string; message?: string }>) => {
     const status = error.response?.status;
     if (status === 401) {
       setToken(null);
@@ -58,8 +66,18 @@ api.interceptors.response.use(
 
 // --- Error message extraction ---
 export function apiErrorMessage(err: unknown, fallback = "Something went wrong"): string {
-  const e = err as AxiosError<{ error?: string }>;
-  return e?.response?.data?.error || e?.message || fallback;
+  const e = err as AxiosError<{ error?: string; message?: string; details?: unknown }>;
+  const data = e?.response?.data;
+  if (data) {
+    if (Array.isArray(data.details) && data.details.length) {
+      const first = data.details[0] as { message?: string } | string;
+      if (typeof first === "string") return first;
+      if (first?.message) return first.message;
+    }
+    if (data.error) return data.error;
+    if (data.message) return data.message;
+  }
+  return e?.message || fallback;
 }
 
 export function toastApiError(err: unknown, fallback = "Something went wrong") {

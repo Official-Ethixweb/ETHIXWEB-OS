@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { projectsApi } from "@/api/projects";
 import { useAllTasks } from "@/hooks/useAllTasks";
 import { useAuth } from "@/context/AuthContext";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,9 +53,10 @@ export default function Projects() {
     }
   }, [params, setParams]);
 
+  const debouncedQuery = useDebounce(query, 200);
   const filtered = useMemo(
-    () => projects.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())),
-    [projects, query]
+    () => projects.filter((p) => p.name.toLowerCase().includes(debouncedQuery.toLowerCase())),
+    [projects, debouncedQuery]
   );
 
   const onCreate = (e: React.FormEvent) => {

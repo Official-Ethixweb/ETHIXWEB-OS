@@ -22,6 +22,10 @@ export const projectsApi = {
     const { data } = await api.post(`/projects/${projectId}/members`, { email, role });
     return normProject(data.project);
   },
+  async updateMemberRole(projectId: string, userId: string, role: Role): Promise<Project> {
+    const { data } = await api.patch(`/projects/${projectId}/members/${userId}`, { role });
+    return normProject(data.project);
+  },
   async removeMember(projectId: string, userId: string): Promise<Project> {
     const { data } = await api.delete(`/projects/${projectId}/members/${userId}`);
     return normProject(data.project);
