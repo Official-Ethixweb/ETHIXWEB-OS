@@ -9,8 +9,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node backend/src/server.js",
-    "railway:build": "npm run build && npm --prefix backend ci --omit=dev",
+    "start": "vite preview --host 0.0.0.0 --port $PORT",
+    "railway:build": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest"
   },
