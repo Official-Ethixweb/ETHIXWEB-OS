@@ -10,6 +10,7 @@ const MemberSchema = new mongoose.Schema(
 
 const ProjectSchema = new mongoose.Schema(
   {
+    organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     name: { type: String, required: true, trim: true, minlength: 1, maxlength: 80 },
     description: { type: String, default: '', maxlength: 500 },
     color: { type: String, default: '#6366F1' },

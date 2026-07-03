@@ -8,6 +8,7 @@ function randomColor() {
 
 const UserSchema = new mongoose.Schema(
   {
+    organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     name: { type: String, required: true, trim: true, minlength: 2, maxlength: 80 },
     email: {
       type: String,
@@ -20,6 +21,11 @@ const UserSchema = new mongoose.Schema(
     },
     passwordHash: { type: String, required: true },
     avatarColor: { type: String, default: randomColor },
+    companyRole: {
+      type: String,
+      enum: ['superadmin', 'owner', 'hr', 'finance', 'manager', 'developer', 'designer', 'qa', 'employee', 'viewer'],
+      default: 'employee',
+    },
   },
   { timestamps: true }
 );

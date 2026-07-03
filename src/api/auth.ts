@@ -7,9 +7,17 @@ interface AuthResponse {
   user: User;
 }
 
+export type SignupOptions =
+  | { mode: "create_org"; organizationName: string }
+  | { mode: "join_invite"; inviteToken: string };
+
 export const authApi = {
-  async signup(name: string, email: string, password: string): Promise<AuthResponse> {
-    const { data } = await api.post("/auth/signup", { name, email, password });
+  async signup(name: string, email: string, password: string, opts: SignupOptions): Promise<AuthResponse> {
+    const body =
+      opts.mode === "create_org"
+        ? { name, email, password, mode: "create_org", organizationName: opts.organizationName }
+        : { name, email, password, mode: "join_invite", inviteToken: opts.inviteToken };
+    const { data } = await api.post("/auth/signup", body);
     return { token: data.token, user: normUser(data.user)! };
   },
   async login(email: string, password: string): Promise<AuthResponse> {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderPlus, Loader2, Plus, Search, Sparkles } from "lucide-react";
+import { FolderPlus, Loader2, MoreHorizontal, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { projectsApi } from "@/api/projects";
 import { useAllTasks } from "@/hooks/useAllTasks";
@@ -12,7 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { AvatarStack } from "@/components/UserAvatar";
+import { TiltCard } from "@/components/TiltCard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api";
 import type { Project } from "@/types";
@@ -26,6 +29,10 @@ export default function Projects() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [form, setForm] = useState({ name: "", description: "", color: swatches[0] });
+
+  const [editing, setEditing] = useState<Project | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", description: "", color: swatches[0] });
+  const [deleting, setDeleting] = useState<Project | null>(null);
 
   const { data: projects = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["projects"],
@@ -43,6 +50,26 @@ export default function Projects() {
       setOpen(false);
     },
     onError: (e) => toast.error(apiErrorMessage(e, "Could not create project")),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (input: { name: string; description: string; color: string }) => projectsApi.update(editing!.id, input),
+    onSuccess: (project) => {
+      qc.setQueryData<Project[]>(["projects"], (old) => old?.map((p) => (p.id === project.id ? project : p)));
+      toast.success("Project updated");
+      setEditing(null);
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, "Could not update project")),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => projectsApi.remove(id),
+    onSuccess: (_v, id) => {
+      qc.setQueryData<Project[]>(["projects"], (old) => old?.filter((p) => p.id !== id));
+      toast.success(`${deleting?.name ?? "Project"} deleted`);
+      setDeleting(null);
+    },
+    onError: (e) => toast.error(apiErrorMessage(e, "Could not delete project")),
   });
 
   useEffect(() => {
@@ -68,6 +95,17 @@ export default function Projects() {
       description: form.description.trim(),
       color: form.color,
     });
+  };
+
+  const openEdit = (p: Project) => {
+    setEditing(p);
+    setEditForm({ name: p.name, description: p.description, color: p.color });
+  };
+
+  const onUpdate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editForm.name.trim()) return toast.error("Project name is required");
+    updateMutation.mutate({ name: editForm.name.trim(), description: editForm.description.trim(), color: editForm.color });
   };
 
   return (
@@ -152,7 +190,9 @@ export default function Projects() {
       {isLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="glass rounded-2xl p-5 animate-pulse h-44" />
+            <div key={i} className="glass rounded-2xl p-6 h-44 overflow-hidden">
+              <div className="skeleton-shimmer h-full w-full rounded-xl" />
+            </div>
           ))}
         </div>
       ) : isError ? (
@@ -189,47 +229,121 @@ export default function Projects() {
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ delay: i * 0.04 }}
                 >
-                  <Link
-                    to={`/app/projects/${p.id}`}
-                    className="group block glass rounded-2xl p-5 hover:-translate-y-1 hover:shadow-elevated transition-all relative overflow-hidden"
-                  >
-                    <div className="absolute -top-12 -right-12 h-32 w-32 rounded-full opacity-30 blur-2xl" style={{ background: p.color }} />
-                    <div className="relative">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="h-10 w-10 rounded-xl grid place-items-center text-white font-bold" style={{ background: `linear-gradient(135deg, ${p.color}, ${p.color}99)` }}>
-                          {p.name[0]}
+                  <TiltCard strength={5}>
+                    <Link
+                      to={`/app/projects/${p.id}`}
+                      className="group block glass rounded-2xl p-6 hover:-translate-y-1 hover:shadow-elevated transition-all relative overflow-hidden"
+                    >
+                      <div className="absolute -top-12 -right-12 h-32 w-32 rounded-full opacity-30 blur-2xl group-hover:opacity-45 transition-opacity" style={{ background: p.color }} />
+                      <div className="relative">
+                        <div className="flex items-start justify-between mb-3">
+                          <motion.div
+                            className="h-10 w-10 rounded-xl grid place-items-center text-white font-bold"
+                            style={{ background: `linear-gradient(135deg, ${p.color}, ${p.color}99)` }}
+                            whileHover={{ scale: 1.1, rotate: 6 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 15 }}
+                          >
+                            {p.name[0]}
+                          </motion.div>
+                          <div className="flex items-center gap-1">
+                            {role && (
+                              <span className="text-[0.6rem] uppercase tracking-widest px-2 py-1 rounded-full bg-secondary/60 text-muted-foreground">
+                                {role}
+                              </span>
+                            )}
+                            {role === "admin" && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild onClick={(ev) => ev.preventDefault()}>
+                                  <button className="h-7 w-7 grid place-items-center rounded-lg hover:bg-secondary/60 transition-colors text-muted-foreground hover:text-foreground">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5 mr-2" /> Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => setDeleting(p)} className="text-destructive focus:text-destructive"><Trash2 className="h-3.5 w-3.5 mr-2" /> Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
                         </div>
-                        {role && (
-                          <span className="text-[0.6rem] uppercase tracking-widest px-2 py-1 rounded-full bg-secondary/60 text-muted-foreground">
-                            {role}
-                          </span>
-                        )}
-                      </div>
-                      <div className="font-semibold text-lg leading-tight group-hover:text-primary-glow transition-colors">{p.name}</div>
-                      <div className="text-sm text-muted-foreground mt-1 line-clamp-2 min-h-[2.5rem]">{p.description || "No description yet."}</div>
+                        <div className="font-semibold text-lg leading-tight group-hover:text-primary-glow transition-colors">{p.name}</div>
+                        <div className="text-sm text-muted-foreground mt-1 line-clamp-2 min-h-[2.5rem]">{p.description || "No description yet."}</div>
 
-                      <div className="mt-4">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
-                          <span>{done}/{pTasks.length} tasks</span>
-                          <span>{pct}%</span>
+                        <div className="mt-4">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
+                            <span>{done}/{pTasks.length} tasks</span>
+                            <span>{pct}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                            <motion.div
+                              className="h-full w-full rounded-full"
+                              style={{ background: `linear-gradient(90deg, ${p.color}, hsl(var(--primary-glow)))`, transformOrigin: "left" }}
+                              initial={{ scaleX: 0 }}
+                              animate={{ scaleX: pct / 100 }}
+                              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+                            />
+                          </div>
                         </div>
-                        <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${p.color}, hsl(var(--primary-glow)))` }} />
-                        </div>
-                      </div>
 
-                      <div className="mt-4 flex items-center justify-between">
-                        <AvatarStack users={p.members.map((m) => m.user).filter(Boolean) as NonNullable<typeof p.members[number]["user"]>[]} />
-                        <span className="text-xs text-muted-foreground">{p.members.length} members</span>
+                        <div className="mt-4 flex items-center justify-between">
+                          <AvatarStack users={p.members.map((m) => m.user).filter(Boolean) as NonNullable<typeof p.members[number]["user"]>[]} />
+                          <span className="text-xs text-muted-foreground">{p.members.length} members</span>
+                        </div>
                       </div>
-                    </div>
-                  </Link>
+                    </Link>
+                  </TiltCard>
                 </motion.div>
               );
             })}
           </AnimatePresence>
         </div>
       )}
+
+      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
+        <DialogContent className="glass-strong border-border/60 max-w-md">
+          {editing && (
+            <>
+              <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="h-4 w-4 text-accent" /> Edit {editing.name}</DialogTitle></DialogHeader>
+              <form onSubmit={onUpdate} className="space-y-4 mt-2">
+                <div>
+                  <Label htmlFor="edit-pname">Project name</Label>
+                  <Input id="edit-pname" autoFocus value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="mt-1.5 bg-secondary/40 border-border/60" />
+                </div>
+                <div>
+                  <Label htmlFor="edit-pdesc">Description</Label>
+                  <Textarea id="edit-pdesc" value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} className="mt-1.5 bg-secondary/40 border-border/60 min-h-[90px]" maxLength={500} />
+                </div>
+                <div>
+                  <Label>Accent color</Label>
+                  <div className="flex gap-2 mt-2">
+                    {swatches.map((c) => (
+                      <button
+                        type="button"
+                        key={c}
+                        onClick={() => setEditForm((f) => ({ ...f, color: c }))}
+                        className={`h-7 w-7 rounded-full transition-transform ${editForm.color === c ? "ring-2 ring-offset-2 ring-offset-background ring-white scale-110" : "hover:scale-110"}`}
+                        style={{ background: c }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Button type="submit" disabled={updateMutation.isPending} className="w-full bg-gradient-primary hover:opacity-90 text-primary-foreground">
+                  {updateMutation.isPending ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Saving&hellip;</span> : "Save changes"}
+                </Button>
+              </form>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(v) => !v && setDeleting(null)}
+        title={`Delete "${deleting?.name ?? "this project"}"?`}
+        description="This permanently deletes the project and all of its tasks. This cannot be undone."
+        isPending={deleteMutation.isPending}
+        onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
+      />
     </div>
   );
 }

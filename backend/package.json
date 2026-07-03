@@ -2,14 +2,17 @@
   "name": "teamflow-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "TeamFlow API — Express + MongoDB backend with JWT auth and project-level RBAC.",
+  "description": "TeamFlow API: Express + MongoDB backend with JWT auth and project-level RBAC.",
   "type": "commonjs",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "migrate:add-organization": "node src/scripts/migrate-add-organization.js"
   },
-  "engines": { "node": ">=18.0.0" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -19,6 +22,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.1",
     "morgan": "^1.10.0",
+    "multer": "^2.2.0",
+    "pdfkit": "^0.19.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {

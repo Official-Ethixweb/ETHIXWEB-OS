@@ -15,6 +15,10 @@ export const projectsApi = {
     const { data } = await api.post("/projects", input);
     return normProject(data.project);
   },
+  async update(projectId: string, input: { name?: string; description?: string; color?: string }): Promise<Project> {
+    const { data } = await api.patch(`/projects/${projectId}`, input);
+    return normProject(data.project);
+  },
   async remove(projectId: string): Promise<void> {
     await api.delete(`/projects/${projectId}`);
   },

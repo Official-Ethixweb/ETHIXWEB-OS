@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { authApi } from "@/api/auth";
+import { authApi, type SignupOptions } from "@/api/auth";
 import { getToken, setOnUnauthorized, setToken } from "@/lib/api";
 import type { User } from "@/types";
 
@@ -9,8 +9,8 @@ interface AuthContextValue {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<User>;
-  signup: (name: string, email: string, password: string) => Promise<User>;
+  login: (email: string, password: string, remember?: boolean) => Promise<User>;
+  signup: (name: string, email: string, password: string, opts: SignupOptions) => Promise<User>;
   logout: () => Promise<void>;
 }
 
@@ -60,16 +60,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setOnUnauthorized(null);
   }, [navigate, qc]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, remember = true) => {
     const { token: t, user: u } = await authApi.login(email, password);
-    setToken(t);
+    setToken(t, remember);
     setTokenState(t);
     setUser(u);
     return u;
   }, []);
 
-  const signup = useCallback(async (name: string, email: string, password: string) => {
-    const { token: t, user: u } = await authApi.signup(name, email, password);
+  const signup = useCallback(async (name: string, email: string, password: string, opts: SignupOptions) => {
+    const { token: t, user: u } = await authApi.signup(name, email, password, opts);
     setToken(t);
     setTokenState(t);
     setUser(u);

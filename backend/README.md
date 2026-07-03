@@ -80,8 +80,8 @@ Errors:
 |---|---|---|
 | `POST` | `/auth/signup` | `{ name, email, password }` |
 | `POST` | `/auth/login` | `{ email, password }` |
-| `GET`  | `/auth/me` | — |
-| `POST` | `/auth/logout` | — |
+| `GET`  | `/auth/me` | none |
+| `POST` | `/auth/logout` | none |
 
 ### Projects
 

@@ -15,7 +15,9 @@ router.use(requireAuth);
  */
 async function loadProjectAndRole(req, projectId) {
   const project = await Project.findById(projectId);
-  if (!project) throw new ApiError('Project not found', 404);
+  if (!project || String(project.organization) !== req.organizationId) {
+    throw new ApiError('Project not found', 404);
+  }
   const uid = req.user.id;
   const isOwner = String(project.owner) === uid;
   const member = project.members.find((m) => String(m.user) === uid);
@@ -33,7 +35,7 @@ router.get('/', async (req, res, next) => {
     const projectId = req.query.project;
     if (!projectId) throw new ApiError('project query param is required', 400);
     await loadProjectAndRole(req, projectId);
-    const tasks = await Task.find({ project: projectId })
+    const tasks = await Task.find({ project: projectId, organization: req.organizationId })
       .populate('assignee', 'name email avatarColor')
       .sort({ status: 1, order: 1, createdAt: 1 })
       .lean();
@@ -71,6 +73,7 @@ router.post('/', validate(createSchema), async (req, res, next) => {
     const count = await Task.countDocuments({ project: project._id, status: body.status });
 
     const task = await Task.create({
+      organization: req.organizationId,
       project: project._id,
       title: body.title,
       description: body.description || '',
@@ -101,7 +104,7 @@ const updateSchema = z.object({
 // Admins: anything.
 router.patch('/:id', validate(updateSchema), async (req, res, next) => {
   try {
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findOne({ _id: req.params.id, organization: req.organizationId });
     if (!task) throw new ApiError('Task not found', 404);
     const { project, role } = await loadProjectAndRole(req, task.project);
 
@@ -134,7 +137,7 @@ router.patch('/:id', validate(updateSchema), async (req, res, next) => {
 // --- Delete task (admin only) ---
 router.delete('/:id', async (req, res, next) => {
   try {
-    const task = await Task.findById(req.params.id);
+    const task = await Task.findOne({ _id: req.params.id, organization: req.organizationId });
     if (!task) throw new ApiError('Task not found', 404);
     const { role } = await loadProjectAndRole(req, task.project);
     if (role !== 'admin') throw new ApiError('Only admins can delete tasks', 403);

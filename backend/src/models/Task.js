@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const TaskSchema = new mongoose.Schema(
   {
+    organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
     project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
     title: { type: String, required: true, trim: true, minlength: 1, maxlength: 140 },
     description: { type: String, default: '', maxlength: 2000 },

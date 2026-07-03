@@ -22,6 +22,7 @@ router.get('/', async (req, res, next) => {
   try {
     const uid = req.user.id;
     const projects = await Project.find({
+      organization: req.organizationId,
       $or: [{ owner: uid }, { 'members.user': uid }],
     })
       .populate('owner', 'name email avatarColor')
@@ -51,6 +52,7 @@ router.post('/', validate(createSchema), async (req, res, next) => {
   try {
     const { name, description, color } = req.body;
     const project = await Project.create({
+      organization: req.organizationId,
       name,
       description,
       color: color || '#6366F1',
@@ -61,6 +63,27 @@ router.post('/', validate(createSchema), async (req, res, next) => {
     return ok(res, { project: populated }, 'Project created', 201);
   } catch (e) { next(e); }
 });
+
+// --- Update (admin only) ---
+const updateSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  description: z.string().max(500).optional(),
+  color: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Invalid color').optional(),
+});
+
+router.patch(
+  '/:projectId',
+  requireProjectRole({ role: 'admin' }),
+  validate(updateSchema),
+  async (req, res, next) => {
+    try {
+      Object.assign(req.project, req.body);
+      await req.project.save();
+      const populated = await populateProject(req.project._id);
+      return ok(res, { project: populated }, 'Project updated');
+    } catch (e) { next(e); }
+  }
+);
 
 // --- Delete (admin only) ---
 router.delete(
@@ -88,7 +111,7 @@ router.post(
   async (req, res, next) => {
     try {
       const { email, role } = req.body;
-      const user = await User.findOne({ email });
+      const user = await User.findOne({ email, organization: req.organizationId });
       if (!user) throw new ApiError('No user found with that email', 404);
 
       const project = req.project;

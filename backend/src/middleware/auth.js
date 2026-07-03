@@ -19,11 +19,32 @@ async function requireAuth(req, _res, next) {
     const user = await User.findById(payload.sub).lean();
     if (!user) throw new ApiError('User no longer exists', 401);
 
-    req.user = { id: String(user._id), email: user.email, name: user.name };
+    req.organizationId = String(user.organization);
+    req.user = {
+      id: String(user._id),
+      email: user.email,
+      name: user.name,
+      companyRole: user.companyRole,
+      organization: req.organizationId,
+    };
     next();
   } catch (e) {
     next(e);
   }
+}
+
+/**
+ * Restricts access to a set of company-wide roles (superadmin/owner/hr/...).
+ * Independent from requireProjectRole; this governs company modules (Employees,
+ * and future Payroll/Finance), not per-project Kanban permissions.
+ */
+function requireCompanyRole(roles = []) {
+  return (req, _res, next) => {
+    if (!roles.includes(req.user?.companyRole)) {
+      return next(new ApiError('You do not have permission to perform this action', 403));
+    }
+    next();
+  };
 }
 
 /**
@@ -39,7 +60,9 @@ function requireProjectRole(opts = {}) {
       if (!projectId) throw new ApiError('projectId is required', 400);
 
       const project = await Project.findById(projectId);
-      if (!project) throw new ApiError('Project not found', 404);
+      if (!project || String(project.organization) !== req.organizationId) {
+        throw new ApiError('Project not found', 404);
+      }
 
       const uid = req.user.id;
       const isOwner = String(project.owner) === uid;
@@ -60,4 +83,4 @@ function requireProjectRole(opts = {}) {
   };
 }
 
-module.exports = { requireAuth, requireProjectRole };
+module.exports = { requireAuth, requireProjectRole, requireCompanyRole };

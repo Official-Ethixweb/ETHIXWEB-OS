@@ -13,18 +13,21 @@ export const api = axios.create({
 });
 
 // --- Auth token helpers ---
+// "Remember me" controls whether the token survives closing the browser
+// (localStorage) or only the current tab session (sessionStorage).
 export function getToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
 }
 
-export function setToken(token: string | null) {
+export function setToken(token: string | null, remember = true) {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    if (token) (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
   } catch {
     /* noop */
   }

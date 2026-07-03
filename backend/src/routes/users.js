@@ -12,14 +12,14 @@ router.get('/search', async (req, res, next) => {
     const q = String(req.query.q || '').trim();
     if (!q) return ok(res, { users: [] });
     const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-    const users = await User.find({ $or: [{ name: re }, { email: re }] })
+    const users = await User.find({ organization: req.organizationId, $or: [{ name: re }, { email: re }] })
       .limit(10)
       .lean();
     return ok(res, { users: users.map((u) => ({ ...u, passwordHash: undefined })) });
   } catch (e) { next(e); }
 });
 
-// List "me" only — listing all users is intentionally NOT supported for privacy.
+// List "me" only; listing all users is intentionally NOT supported for privacy.
 router.get('/', async (req, res, next) => {
   try {
     const me = await User.findById(req.user.id).lean();
