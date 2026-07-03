@@ -8,6 +8,8 @@ const { validate } = require('../middleware/validate');
 const { uploadDocument, uploadToBlob } = require('../middleware/upload');
 const { ok, ApiError } = require('../utils/respond');
 const { mountCrudExtensions, archivedFilter } = require('../utils/crudExtensions');
+const { logAudit } = require('../utils/audit');
+const { writeLimiter, uploadLimiter, exportLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -16,7 +18,15 @@ const FINANCE_ROLES = ['superadmin', 'owner', 'finance'];
 
 router.use(requireCompanyRole(FINANCE_ROLES));
 
-router.get('/', async (req, res, next) => {
+const listQuerySchema = z.object({
+  type: z.enum(['income', 'expense']).optional(),
+  category: z.enum(['Engineering', 'Design', 'HR', 'Finance', 'Sales', 'Marketing', 'Operations', 'Support', 'Other']).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  archived: z.string().optional(),
+});
+
+router.get('/', validate(listQuerySchema, 'query'), async (req, res, next) => {
   try {
     const { type, category, from, to } = req.query;
     const filter = { organization: req.organizationId, archived: archivedFilter(req) };
@@ -42,14 +52,14 @@ const bodySchema = z.object({
   recurring: z.boolean().optional().default(false),
 });
 
-router.post('/', validate(bodySchema), async (req, res, next) => {
+router.post('/', writeLimiter, validate(bodySchema), async (req, res, next) => {
   try {
     const transaction = await Transaction.create({ ...req.body, organization: req.organizationId, createdBy: req.user.id });
     return ok(res, { transaction }, 'Transaction recorded', 201);
   } catch (e) { next(e); }
 });
 
-router.patch('/:id', validate(bodySchema.partial()), async (req, res, next) => {
+router.patch('/:id', writeLimiter, validate(bodySchema.partial()), async (req, res, next) => {
   try {
     const transaction = await Transaction.findOneAndUpdate(
       { _id: req.params.id, organization: req.organizationId },
@@ -65,11 +75,12 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const transaction = await Transaction.findOneAndDelete({ _id: req.params.id, organization: req.organizationId });
     if (!transaction) throw new ApiError('Transaction not found', 404);
+    await logAudit(req, 'finance.delete', 'Transaction', transaction._id, { description: transaction.description, amount: transaction.amount });
     return ok(res, null, 'Transaction deleted');
   } catch (e) { next(e); }
 });
 
-router.post('/:id/attachment', uploadDocument.single('attachment'), async (req, res, next) => {
+router.post('/:id/attachment', uploadLimiter, uploadDocument.single('attachment'), async (req, res, next) => {
   try {
     const transaction = await Transaction.findOne({ _id: req.params.id, organization: req.organizationId });
     if (!transaction) throw new ApiError('Transaction not found', 404);
@@ -80,8 +91,13 @@ router.post('/:id/attachment', uploadDocument.single('attachment'), async (req, 
   } catch (e) { next(e); }
 });
 
+const summaryQuerySchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  year: z.string().regex(/^\d{4}$/).optional(),
+});
+
 // --- Aggregated summary: totals + category breakdown for a month or year ---
-router.get('/summary', async (req, res, next) => {
+router.get('/summary', validate(summaryQuerySchema, 'query'), async (req, res, next) => {
   try {
     const { month, year } = req.query;
     const filter = { organization: new mongoose.Types.ObjectId(req.organizationId), archived: { $ne: true } };
@@ -127,8 +143,10 @@ router.get('/summary', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+const trendQuerySchema = z.object({ months: z.coerce.number().int().min(1).max(24).optional() });
+
 // --- Dashboard: income/expense totals per month, last N months ---
-router.get('/trend', async (req, res, next) => {
+router.get('/trend', validate(trendQuerySchema, 'query'), async (req, res, next) => {
   try {
     const months = Math.min(24, Math.max(1, Number(req.query.months) || 12));
     const since = new Date();
@@ -159,7 +177,7 @@ router.get('/trend', async (req, res, next) => {
 });
 
 // --- PDF report ---
-router.get('/report/pdf', async (req, res, next) => {
+router.get('/report/pdf', exportLimiter, validate(summaryQuerySchema, 'query'), async (req, res, next) => {
   try {
     const { month, year } = req.query;
     const filter = { organization: req.organizationId, archived: { $ne: true } };

@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const { encryptField } = require('../utils/encryption');
+
+const BCRYPT_COST = 12;
 
 const COLORS = ['#6366F1', '#A855F7', '#22D3EE', '#F472B6', '#34D399', '#FB923C'];
 function randomColor() {
@@ -28,6 +31,24 @@ const UserSchema = new mongoose.Schema(
     },
     resetTokenHash: { type: String, default: null, index: true },
     resetTokenExpires: { type: Date, default: null },
+
+    // Account lockout / brute-force protection
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockedUntil: { type: Date, default: null },
+
+    // Login history (denormalized for quick display; full history in LoginEvent)
+    lastLoginAt: { type: Date, default: null },
+    lastLoginIp: { type: String, default: null },
+
+    // TOTP 2FA (opt-in). Secret is encrypted at rest.
+    twoFactorEnabled: { type: Boolean, default: false },
+    twoFactorSecret: { type: String, default: null, set: encryptField },
+    twoFactorBackupCodes: { type: [String], default: [] }, // each entry is a bcrypt hash of a one-time code
+
+    // Email verification (architecture only — not enforced at login in this phase)
+    emailVerified: { type: Boolean, default: false },
+    emailVerificationTokenHash: { type: String, default: null, index: true },
+    emailVerificationExpires: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -37,7 +58,7 @@ UserSchema.methods.comparePassword = function (plain) {
 };
 
 UserSchema.statics.hashPassword = function (plain) {
-  return bcrypt.hash(plain, 10);
+  return bcrypt.hash(plain, BCRYPT_COST);
 };
 
 UserSchema.set('toJSON', {
@@ -45,6 +66,12 @@ UserSchema.set('toJSON', {
     delete ret.passwordHash;
     delete ret.resetTokenHash;
     delete ret.resetTokenExpires;
+    delete ret.failedLoginAttempts;
+    delete ret.lockedUntil;
+    delete ret.twoFactorSecret;
+    delete ret.twoFactorBackupCodes;
+    delete ret.emailVerificationTokenHash;
+    delete ret.emailVerificationExpires;
     delete ret.__v;
     return ret;
   },

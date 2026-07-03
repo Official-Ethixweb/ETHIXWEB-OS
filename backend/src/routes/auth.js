@@ -2,11 +2,15 @@ const express = require('express');
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const otplib = require('otplib');
 const { z } = require('zod');
 const User = require('../models/User');
 const Organization = require('../models/Organization');
 const Invite = require('../models/Invite');
 const Employee = require('../models/Employee');
+const RefreshToken = require('../models/RefreshToken');
+const LoginEvent = require('../models/LoginEvent');
 const Asset = require('../models/Asset');
 const Attendance = require('../models/Attendance');
 const Client = require('../models/Client');
@@ -26,6 +30,10 @@ const { validate } = require('../middleware/validate');
 const { ok, ApiError } = require('../utils/respond');
 const { nextEmployeeId } = require('./employees');
 const { sendEmail } = require('../utils/email');
+const { logAudit } = require('../utils/audit');
+const { decryptField } = require('../utils/encryption');
+const { authLimiter, accountLimiter } = require('../middleware/rateLimit');
+const logger = require('../utils/logger');
 
 const ORG_SCOPED_MODELS = [
   Asset, Attendance, Client, Department, Domain, Employee, Invite,
@@ -33,6 +41,14 @@ const ORG_SCOPED_MODELS = [
 ];
 
 const router = express.Router();
+
+const MAX_LOGIN_ATTEMPTS = Number(process.env.MAX_LOGIN_ATTEMPTS || 5);
+const LOCKOUT_MINUTES = Number(process.env.LOCKOUT_MINUTES || 15);
+const ACCESS_TOKEN_TTL = '15m';
+const MFA_TOKEN_TTL = '5m';
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const REFRESH_COOKIE_NAME = 'refreshToken';
+const REFRESH_COOKIE_PATH = '/auth';
 
 const signupSchema = z
   .object({
@@ -57,10 +73,92 @@ const loginSchema = z.object({
   password: z.string().min(1).max(100),
 });
 
-function signToken(userId, organizationId) {
-  return jwt.sign({ sub: String(userId), org: String(organizationId) }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+// --- token helpers ---
+
+function signAccessToken(userId, organizationId) {
+  return jwt.sign({ sub: String(userId), org: String(organizationId), type: 'access' }, process.env.JWT_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: ACCESS_TOKEN_TTL,
   });
+}
+
+function signMfaToken(userId) {
+  return jwt.sign({ sub: String(userId), type: 'mfa' }, process.env.JWT_SECRET, {
+    algorithm: 'HS256',
+    expiresIn: MFA_TOKEN_TTL,
+  });
+}
+
+function hashToken(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+async function issueRefreshToken(userId, req, family) {
+  const raw = crypto.randomBytes(40).toString('hex');
+  const fam = family || crypto.randomUUID();
+  await RefreshToken.create({
+    user: userId,
+    tokenHash: hashToken(raw),
+    family: fam,
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    createdByIp: req.ip,
+    userAgent: req.headers['user-agent'] || null,
+  });
+  return { raw, family: fam };
+}
+
+function setRefreshCookie(res, raw) {
+  res.cookie(REFRESH_COOKIE_NAME, raw, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: REFRESH_COOKIE_PATH,
+    maxAge: REFRESH_TOKEN_TTL_MS,
+  });
+}
+
+function clearRefreshCookie(res) {
+  res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
+}
+
+// Issues a fresh access token + rotated refresh cookie for an already-verified user.
+async function issueSession(user, req, res) {
+  const accessToken = signAccessToken(user._id, user.organization);
+  const { raw } = await issueRefreshToken(user._id, req);
+  setRefreshCookie(res, raw);
+  return accessToken;
+}
+
+async function recordLoginEvent(user, req, success, reason) {
+  try {
+    await LoginEvent.create({
+      user: user._id,
+      organization: user.organization,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'] || null,
+      success,
+      reason,
+    });
+  } catch (e) {
+    logger.error('Failed to record login event', e);
+  }
+}
+
+async function sendVerificationEmail(user) {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  user.emailVerificationTokenHash = hashToken(rawToken);
+  user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await user.save();
+  const verifyUrl = `${process.env.CLIENT_ORIGIN}/verify-email?token=${rawToken}`;
+  try {
+    await sendEmail({
+      to: user.email,
+      subject: 'Verify your ETHIXWEB OS email',
+      html: `<p>Hi ${user.name},</p><p>Please confirm your email address:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
+    });
+  } catch (e) {
+    logger.error('Failed to send verification email', e);
+  }
 }
 
 function slugify(name) {
@@ -84,7 +182,7 @@ async function generateUniqueSlug(name) {
   return slug;
 }
 
-router.post('/signup', validate(signupSchema), async (req, res, next) => {
+router.post('/signup', accountLimiter, validate(signupSchema), async (req, res, next) => {
   try {
     const { name, email, password, mode } = req.body;
     const existing = await User.findOne({ email });
@@ -117,9 +215,10 @@ router.post('/signup', validate(signupSchema), async (req, res, next) => {
       invite.acceptedBy = user._id;
       await invite.save();
 
-      const token = signToken(user._id, invite.organization);
+      await sendVerificationEmail(user);
+      const accessToken = await issueSession(user, req, res);
       const populated = await User.findById(user._id).populate('organization', 'name slug');
-      return ok(res, { token, user: populated.toJSON() }, 'Account created', 201);
+      return ok(res, { token: accessToken, user: populated.toJSON() }, 'Account created', 201);
     }
 
     // mode === 'create_org'
@@ -157,22 +256,92 @@ router.post('/signup', validate(signupSchema), async (req, res, next) => {
       status: 'active',
     });
 
-    const token = signToken(user._id, organization._id);
+    await sendVerificationEmail(user);
+    const accessToken = await issueSession(user, req, res);
     const populated = await User.findById(user._id).populate('organization', 'name slug');
-    return ok(res, { token, user: populated.toJSON() }, 'Account created', 201);
+    return ok(res, { token: accessToken, user: populated.toJSON() }, 'Account created', 201);
   } catch (e) { next(e); }
 });
 
-router.post('/login', validate(loginSchema), async (req, res, next) => {
+router.post('/login', authLimiter, validate(loginSchema), async (req, res, next) => {
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) throw new ApiError('Invalid email or password', 401);
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      await recordLoginEvent(user, req, false, 'locked');
+      throw new ApiError('Too many failed attempts. Please try again later.', 423);
+    }
+
     const okPw = await user.comparePassword(password);
-    if (!okPw) throw new ApiError('Invalid email or password', 401);
-    const token = signToken(user._id, user.organization);
+    if (!okPw) {
+      user.failedLoginAttempts += 1;
+      if (user.failedLoginAttempts >= MAX_LOGIN_ATTEMPTS) {
+        user.lockedUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+      }
+      await user.save();
+      await recordLoginEvent(user, req, false, 'bad_password');
+      throw new ApiError('Invalid email or password', 401);
+    }
+
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    user.lastLoginAt = new Date();
+    user.lastLoginIp = req.ip;
+    await user.save();
+    await recordLoginEvent(user, req, true, 'ok');
+
+    if (user.twoFactorEnabled) {
+      return ok(res, { mfaRequired: true, mfaToken: signMfaToken(user._id) }, 'Two-factor code required');
+    }
+
+    const accessToken = await issueSession(user, req, res);
     const populated = await User.findById(user._id).populate('organization', 'name slug');
-    return ok(res, { token, user: populated.toJSON() }, 'Signed in');
+    return ok(res, { token: accessToken, user: populated.toJSON() }, 'Signed in');
+  } catch (e) { next(e); }
+});
+
+async function findMatchingBackupCodeIndex(hashedCodes, plainCode) {
+  for (let i = 0; i < hashedCodes.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await bcrypt.compare(plainCode, hashedCodes[i])) return i;
+  }
+  return -1;
+}
+
+const mfaVerifySchema = z.object({ mfaToken: z.string().min(1), code: z.string().trim().min(6).max(10) });
+
+router.post('/login/verify-2fa', authLimiter, validate(mfaVerifySchema), async (req, res, next) => {
+  try {
+    let payload;
+    try {
+      payload = jwt.verify(req.body.mfaToken, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    } catch {
+      throw new ApiError('This code has expired, please sign in again.', 401);
+    }
+    if (payload.type !== 'mfa') throw new ApiError('This code has expired, please sign in again.', 401);
+
+    const user = await User.findById(payload.sub);
+    if (!user || !user.twoFactorEnabled) throw new ApiError('This code has expired, please sign in again.', 401);
+
+    const secret = decryptField(user.twoFactorSecret);
+    const { valid } = await otplib.verify({ token: req.body.code, secret, algorithm: 'TOTP' });
+
+    let ok2fa = valid;
+    if (!ok2fa) {
+      const idx = await findMatchingBackupCodeIndex(user.twoFactorBackupCodes, req.body.code);
+      if (idx !== -1) {
+        ok2fa = true;
+        user.twoFactorBackupCodes.splice(idx, 1);
+        await user.save();
+      }
+    }
+    if (!ok2fa) throw new ApiError('Invalid code', 401);
+
+    const accessToken = await issueSession(user, req, res);
+    const populated = await User.findById(user._id).populate('organization', 'name slug');
+    return ok(res, { token: accessToken, user: populated.toJSON() }, 'Signed in');
   } catch (e) { next(e); }
 });
 
@@ -211,7 +380,10 @@ router.delete('/me', requireAuth, validate(deleteAccountSchema), async (req, res
       await Employee.deleteOne({ user: user._id, organization: user.organization });
     }
 
+    await logAudit(req, 'account.delete', 'User', user._id, { email: user.email, companyRole: user.companyRole });
+    await RefreshToken.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
     await User.deleteOne({ _id: user._id });
+    clearRefreshCookie(res);
     return ok(res, null, 'Account deleted');
   } catch (e) { next(e); }
 });
@@ -220,12 +392,12 @@ const forgotPasswordSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(255),
 });
 
-router.post('/forgot-password', validate(forgotPasswordSchema), async (req, res, next) => {
+router.post('/forgot-password', accountLimiter, validate(forgotPasswordSchema), async (req, res, next) => {
   try {
     const user = await User.findOne({ email: req.body.email });
     if (user) {
       const rawToken = crypto.randomBytes(32).toString('hex');
-      user.resetTokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      user.resetTokenHash = hashToken(rawToken);
       user.resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000);
       await user.save();
 
@@ -239,7 +411,7 @@ router.post('/forgot-password', validate(forgotPasswordSchema), async (req, res,
       } catch (emailErr) {
         // Don't leak email-send failures to the client — the token still exists,
         // and revealing this would confirm account existence to an attacker.
-        console.error('Failed to send password reset email:', emailErr.message);
+        logger.error('Failed to send password reset email', emailErr);
       }
     }
     // Always respond the same way regardless of whether the email was found,
@@ -253,21 +425,184 @@ const resetPasswordSchema = z.object({
   password: z.string().min(6).max(100),
 });
 
-router.post('/reset-password', validate(resetPasswordSchema), async (req, res, next) => {
+router.post('/reset-password', accountLimiter, validate(resetPasswordSchema), async (req, res, next) => {
   try {
-    const tokenHash = crypto.createHash('sha256').update(req.body.token).digest('hex');
+    const tokenHash = hashToken(req.body.token);
     const user = await User.findOne({ resetTokenHash: tokenHash, resetTokenExpires: { $gt: new Date() } });
     if (!user) throw new ApiError('This reset link is invalid or has expired.', 400);
 
     user.passwordHash = await User.hashPassword(req.body.password);
     user.resetTokenHash = null;
     user.resetTokenExpires = null;
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
     await user.save();
+
+    // A password reset invalidates every existing session — someone else
+    // holding a stolen refresh token shouldn't survive a password change.
+    await RefreshToken.updateMany({ user: user._id, revokedAt: null }, { revokedAt: new Date() });
 
     return ok(res, null, 'Password reset. You can now sign in with your new password.');
   } catch (e) { next(e); }
 });
 
-router.post('/logout', requireAuth, (_req, res) => ok(res, null, 'Signed out'));
+const verifyEmailSchema = z.object({ token: z.string().min(1) });
+
+router.post('/verify-email', accountLimiter, validate(verifyEmailSchema), async (req, res, next) => {
+  try {
+    const tokenHash = hashToken(req.body.token);
+    const user = await User.findOne({ emailVerificationTokenHash: tokenHash, emailVerificationExpires: { $gt: new Date() } });
+    if (!user) throw new ApiError('This verification link is invalid or has expired.', 400);
+    user.emailVerified = true;
+    user.emailVerificationTokenHash = null;
+    user.emailVerificationExpires = null;
+    await user.save();
+    return ok(res, null, 'Email verified');
+  } catch (e) { next(e); }
+});
+
+router.post('/verify-email/resend', requireAuth, accountLimiter, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (user.emailVerified) throw new ApiError('Email is already verified', 400);
+    await sendVerificationEmail(user);
+    return ok(res, null, 'Verification email sent');
+  } catch (e) { next(e); }
+});
+
+// --- 2FA (TOTP) setup — opt-in, not enforced ---
+
+router.post('/2fa/setup', requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (user.twoFactorEnabled) throw new ApiError('Two-factor authentication is already enabled', 400);
+    const secret = await otplib.generateSecret();
+    user.twoFactorSecret = secret; // encrypted at rest via the model's `set`
+    await user.save();
+    const otpauth = await otplib.generateURI({ issuer: 'ETHIXWEB OS', label: user.email, secret, algorithm: 'TOTP' });
+    return ok(res, { otpauth, secret }, 'Scan this in your authenticator app, then verify a code to finish enabling.');
+  } catch (e) { next(e); }
+});
+
+const twoFactorVerifySchema = z.object({ code: z.string().trim().min(6).max(10) });
+
+router.post('/2fa/verify', requireAuth, validate(twoFactorVerifySchema), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user.twoFactorSecret) throw new ApiError('Run setup first', 400);
+    const secret = decryptField(user.twoFactorSecret);
+    const { valid } = await otplib.verify({ token: req.body.code, secret, algorithm: 'TOTP' });
+    if (!valid) throw new ApiError('Invalid code', 400);
+
+    const rawBackupCodes = Array.from({ length: 8 }, () => crypto.randomBytes(5).toString('hex'));
+    user.twoFactorBackupCodes = await Promise.all(rawBackupCodes.map((c) => bcrypt.hash(c, 10)));
+    user.twoFactorEnabled = true;
+    await user.save();
+    await logAudit(req, 'user.2fa_enabled', 'User', user._id);
+    return ok(res, { backupCodes: rawBackupCodes }, 'Two-factor authentication enabled. Store these backup codes somewhere safe.');
+  } catch (e) { next(e); }
+});
+
+const twoFactorDisableSchema = z.object({ password: z.string().min(1) });
+
+router.post('/2fa/disable', requireAuth, validate(twoFactorDisableSchema), async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const okPw = await user.comparePassword(req.body.password);
+    if (!okPw) throw new ApiError('Incorrect password', 401);
+    user.twoFactorEnabled = false;
+    user.twoFactorSecret = null;
+    user.twoFactorBackupCodes = [];
+    await user.save();
+    await logAudit(req, 'user.2fa_disabled', 'User', user._id);
+    return ok(res, null, 'Two-factor authentication disabled');
+  } catch (e) { next(e); }
+});
+
+// --- refresh / logout / sessions ---
+
+router.post('/refresh', async (req, res, next) => {
+  try {
+    const raw = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (!raw) throw new ApiError('No active session', 401);
+    const tokenHash = hashToken(raw);
+    const existing = await RefreshToken.findOne({ tokenHash });
+
+    if (!existing || existing.expiresAt < new Date()) {
+      clearRefreshCookie(res);
+      throw new ApiError('Session expired, please sign in again.', 401);
+    }
+
+    if (existing.revokedAt) {
+      // Reuse of an already-rotated refresh token — the whole chain may be
+      // compromised (e.g. a stolen cookie being replayed). Kill every token
+      // in the family and force re-login rather than trusting it further.
+      await RefreshToken.updateMany({ family: existing.family, revokedAt: null }, { revokedAt: new Date() });
+      clearRefreshCookie(res);
+      throw new ApiError('Session expired, please sign in again.', 401);
+    }
+
+    const user = await User.findById(existing.user);
+    if (!user) {
+      clearRefreshCookie(res);
+      throw new ApiError('Session expired, please sign in again.', 401);
+    }
+
+    const { raw: newRaw } = await issueRefreshToken(user._id, req, existing.family);
+    existing.revokedAt = new Date();
+    existing.replacedByHash = hashToken(newRaw);
+    await existing.save();
+    setRefreshCookie(res, newRaw);
+
+    const accessToken = signAccessToken(user._id, user.organization);
+    return ok(res, { token: accessToken }, 'Refreshed');
+  } catch (e) { next(e); }
+});
+
+router.post('/logout', async (req, res, next) => {
+  try {
+    const raw = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (raw) {
+      await RefreshToken.updateOne({ tokenHash: hashToken(raw), revokedAt: null }, { revokedAt: new Date() });
+    }
+    clearRefreshCookie(res);
+    return ok(res, null, 'Signed out');
+  } catch (e) { next(e); }
+});
+
+router.post('/logout-all', requireAuth, async (req, res, next) => {
+  try {
+    await RefreshToken.updateMany({ user: req.user.id, revokedAt: null }, { revokedAt: new Date() });
+    clearRefreshCookie(res);
+    return ok(res, null, 'Signed out of all devices');
+  } catch (e) { next(e); }
+});
+
+router.get('/sessions', requireAuth, async (req, res, next) => {
+  try {
+    const [devices, history] = await Promise.all([
+      RefreshToken.find({ user: req.user.id, revokedAt: null, expiresAt: { $gt: new Date() } })
+        .sort({ createdAt: -1 })
+        .lean(),
+      LoginEvent.find({ user: req.user.id }).sort({ createdAt: -1 }).limit(20).lean(),
+    ]);
+    return ok(res, {
+      devices: devices.map((d) => ({ id: d._id, ip: d.createdByIp, userAgent: d.userAgent, createdAt: d.createdAt })),
+      history,
+    });
+  } catch (e) { next(e); }
+});
+
+router.post('/sessions/:id/revoke', requireAuth, async (req, res, next) => {
+  try {
+    if (!/^[0-9a-fA-F]{24}$/.test(req.params.id)) throw new ApiError('Session not found', 404);
+    const result = await RefreshToken.updateOne(
+      { _id: req.params.id, user: req.user.id, revokedAt: null },
+      { revokedAt: new Date() }
+    );
+    if (result.matchedCount === 0) throw new ApiError('Session not found', 404);
+    return ok(res, null, 'Session revoked');
+  } catch (e) { next(e); }
+});
 
 module.exports = router;

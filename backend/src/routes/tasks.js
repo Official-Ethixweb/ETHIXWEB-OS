@@ -29,11 +29,12 @@ async function populateTask(id) {
   return Task.findById(id).populate('assignee', 'name email avatarColor').lean();
 }
 
+const listQuerySchema = z.object({ project: z.string().regex(/^[0-9a-fA-F]{24}$/, 'project must be a valid id') });
+
 // --- List tasks for a project ---
-router.get('/', async (req, res, next) => {
+router.get('/', validate(listQuerySchema, 'query'), async (req, res, next) => {
   try {
     const projectId = req.query.project;
-    if (!projectId) throw new ApiError('project query param is required', 400);
     await loadProjectAndRole(req, projectId);
     const tasks = await Task.find({ project: projectId, organization: req.organizationId })
       .populate('assignee', 'name email avatarColor')

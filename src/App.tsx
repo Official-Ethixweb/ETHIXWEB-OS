@@ -34,6 +34,7 @@ const Assets = lazy(() => import("@/pages/Assets"));
 const Clients = lazy(() => import("@/pages/Clients"));
 const Vendors = lazy(() => import("@/pages/Vendors"));
 const Departments = lazy(() => import("@/pages/Departments"));
+const Security = lazy(() => import("@/pages/Security"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 function RouteFallback() {
@@ -92,6 +93,7 @@ const App = () => (
                   <Route path="clients" element={<RequireCompanyRole roles={OPS_COMPANY_ROLES}><Clients /></RequireCompanyRole>} />
                   <Route path="vendors" element={<RequireCompanyRole roles={OPS_COMPANY_ROLES}><Vendors /></RequireCompanyRole>} />
                   <Route path="departments" element={<Departments />} />
+                  <Route path="security" element={<Security />} />
                 </Route>
                 <Route path="/dashboard" element={<Navigate to="/app" replace />} />
                 <Route path="*" element={<NotFound />} />

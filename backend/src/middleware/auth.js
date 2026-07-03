@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Project = require('../models/Project');
 const { ApiError } = require('../utils/respond');
+const { isIpAllowed } = require('../utils/ipAllowlist');
 
 async function requireAuth(req, _res, next) {
   try {
@@ -11,15 +12,21 @@ async function requireAuth(req, _res, next) {
 
     let payload;
     try {
-      payload = jwt.verify(token, process.env.JWT_SECRET);
+      payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     } catch {
       throw new ApiError('Invalid or expired token', 401);
     }
+    if (payload.type && payload.type !== 'access') throw new ApiError('Invalid or expired token', 401);
 
-    const user = await User.findById(payload.sub).lean();
+    const user = await User.findById(payload.sub).populate('organization', 'ipAllowlist status').lean();
     if (!user) throw new ApiError('User no longer exists', 401);
+    if (user.organization?.status === 'suspended') throw new ApiError('This workspace has been suspended', 403);
 
-    req.organizationId = String(user.organization);
+    if (!isIpAllowed(req.ip, user.organization?.ipAllowlist)) {
+      throw new ApiError('Access from this network is not permitted for your organization', 403);
+    }
+
+    req.organizationId = String(user.organization?._id || user.organization);
     req.user = {
       id: String(user._id),
       email: user.email,

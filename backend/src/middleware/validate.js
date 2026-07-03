@@ -1,3 +1,4 @@
+const { z } = require('zod');
 const { ApiError } = require('../utils/respond');
 
 /**
@@ -19,4 +20,11 @@ function validate(schema, source = 'body') {
   };
 }
 
-module.exports = { validate };
+// Shared param-shape check for the common `/:id` route pattern. Mongoose
+// already CastErrors on a malformed ObjectId (caught safely by the central
+// error handler), so this isn't closing an injection hole — it's making the
+// rejection explicit/early rather than relying on that fallback everywhere.
+const objectIdSchema = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid id');
+const idParamSchema = z.object({ id: objectIdSchema });
+
+module.exports = { validate, idParamSchema, objectIdSchema };

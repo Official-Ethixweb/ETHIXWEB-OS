@@ -5,6 +5,8 @@ const Invite = require('../models/Invite');
 const { requireAuth, requireCompanyRole } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { ok, ApiError } = require('../utils/respond');
+const { logAudit } = require('../utils/audit');
+const { writeLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
@@ -43,7 +45,7 @@ router.get('/', requireCompanyRole(OWNER_ROLES), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/', requireCompanyRole(OWNER_ROLES), validate(createSchema), async (req, res, next) => {
+router.post('/', writeLimiter, requireCompanyRole(OWNER_ROLES), validate(createSchema), async (req, res, next) => {
   try {
     const { email, companyRole } = req.body;
     const existingPending = await Invite.findOne({ organization: req.organizationId, email, status: 'pending' });
@@ -59,6 +61,7 @@ router.post('/', requireCompanyRole(OWNER_ROLES), validate(createSchema), async 
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
+    await logAudit(req, 'invite.create', 'Invite', invite._id, { email, companyRole });
     return ok(res, { invite: invite.toObject(), inviteUrl: buildInviteUrl(req, token) }, 'Invite created', 201);
   } catch (e) { next(e); }
 });
@@ -71,6 +74,7 @@ router.delete('/:id', requireCompanyRole(OWNER_ROLES), async (req, res, next) =>
       { new: true }
     );
     if (!invite) throw new ApiError('Invite not found', 404);
+    await logAudit(req, 'invite.revoke', 'Invite', invite._id, { email: invite.email });
     return ok(res, null, 'Invite revoked');
   } catch (e) { next(e); }
 });

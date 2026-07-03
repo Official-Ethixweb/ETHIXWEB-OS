@@ -11,7 +11,12 @@ router.use(requireAuth);
 
 const HR_ROLES = ['superadmin', 'owner', 'hr', 'manager'];
 
-router.get('/', async (req, res, next) => {
+const listQuerySchema = z.object({
+  employee: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+  status: z.enum(['pending', 'approved', 'rejected']).optional(),
+});
+
+router.get('/', validate(listQuerySchema, 'query'), async (req, res, next) => {
   try {
     const { employee, status } = req.query;
     const filter = { organization: req.organizationId };

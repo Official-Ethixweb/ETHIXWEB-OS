@@ -30,6 +30,8 @@ interface RawUser {
   avatarColor?: string;
   companyRole?: User["companyRole"];
   organization?: RawOrganization | string;
+  twoFactorEnabled?: boolean;
+  emailVerified?: boolean;
 }
 
 export function normUser(raw: RawUser | string | null | undefined): User | null {
@@ -46,6 +48,8 @@ export function normUser(raw: RawUser | string | null | undefined): User | null 
     avatarColor: raw.avatarColor ?? colorFor(id),
     companyRole: raw.companyRole,
     organization: normOrganization(raw.organization),
+    twoFactorEnabled: raw.twoFactorEnabled ?? false,
+    emailVerified: raw.emailVerified ?? false,
   };
 }
 

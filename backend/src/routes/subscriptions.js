@@ -6,6 +6,7 @@ const { validate } = require('../middleware/validate');
 const { uploadDocument, uploadToBlob } = require('../middleware/upload');
 const { ok, ApiError } = require('../utils/respond');
 const { mountCrudExtensions, archivedFilter } = require('../utils/crudExtensions');
+const { uploadLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -78,7 +79,7 @@ router.delete('/:id', requireCompanyRole(MANAGE_ROLES), async (req, res, next) =
   } catch (e) { next(e); }
 });
 
-router.post('/:id/invoice', requireCompanyRole(MANAGE_ROLES), uploadDocument.single('invoice'), async (req, res, next) => {
+router.post('/:id/invoice', uploadLimiter, requireCompanyRole(MANAGE_ROLES), uploadDocument.single('invoice'), async (req, res, next) => {
   try {
     const subscription = await Subscription.findOne({ _id: req.params.id, organization: req.organizationId });
     if (!subscription) throw new ApiError('Subscription not found', 404);

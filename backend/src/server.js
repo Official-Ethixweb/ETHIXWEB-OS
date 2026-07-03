@@ -4,11 +4,16 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
-const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const hpp = require('hpp');
+const compression = require('compression');
+const cookieParser = require('cookie-parser');
 
 const { connectDB } = require('./config/db');
 const { errorHandler, notFound } = require('./middleware/error');
 const logger = require('./utils/logger');
+const { globalLimiter } = require('./middleware/rateLimit');
 
 const authRoutes = require('./routes/auth');
 const inviteRoutes = require('./routes/invites');
@@ -28,9 +33,39 @@ const clientRoutes = require('./routes/clients');
 const vendorRoutes = require('./routes/vendors');
 const departmentRoutes = require('./routes/departments');
 const teamRoutes = require('./routes/teams');
+const fileRoutes = require('./routes/files');
+const organizationRoutes = require('./routes/organizations');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+const blobHost = (() => {
+  try {
+    return process.env.BLOB_READ_WRITE_TOKEN ? 'https://*.public.blob.vercel-storage.com' : null;
+  } catch {
+    return null;
+  }
+})();
+
+app.set('trust proxy', 1); // required for req.ip / rate-limit keying behind Vercel/Railway's proxy
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', ...(blobHost ? [blobHost] : [])],
+        connectSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        frameAncestors: ["'none'"],
+        objectSrc: ["'none'"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+app.use(compression());
 
 // --- CORS ---
 const allowedOrigins = (process.env.CLIENT_ORIGIN || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8080'))
@@ -66,7 +101,10 @@ app.use((req, res, next) => {
   })(req, res, next);
 });
 
+app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
+app.use(mongoSanitize());
+app.use(hpp());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // On serverless hosts (Vercel), a fresh function invocation may not have a
@@ -77,17 +115,6 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use((req, res, next) => {
   connectDB(process.env.MONGODB_URI).then(() => next(), next);
 });
-
-// Basic rate limit on auth to prevent brute-force
-app.use(
-  '/auth',
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 50,
-    standardHeaders: true,
-    legacyHeaders: false,
-  })
-);
 
 app.get('/health', (_req, res) =>
   res.json({
@@ -100,6 +127,11 @@ app.get('/health', (_req, res) =>
     message: 'TeamFlow API is running',
   })
 );
+
+// Global request budget. Tighter per-route limiters (login, signup, uploads,
+// exports) are applied inside their own route files so legitimate high-frequency
+// calls like /auth/me and /auth/refresh aren't caught by a blanket auth limit.
+app.use(globalLimiter);
 
 app.use('/auth', authRoutes);
 app.use('/invites', inviteRoutes);
@@ -119,12 +151,15 @@ app.use('/clients', clientRoutes);
 app.use('/vendors', vendorRoutes);
 app.use('/departments', departmentRoutes);
 app.use('/teams', teamRoutes);
+app.use('/files', fileRoutes);
+app.use('/organizations', organizationRoutes);
 
 if (process.env.NODE_ENV === 'production') {
   const frontendDistPath = path.resolve(__dirname, '../../dist');
   app.use(express.static(frontendDistPath));
+  const apiPrefixes = ['/auth', '/invites', '/projects', '/tasks', '/users', '/files', '/organizations'];
   app.get('*', (_req, res, next) => {
-    if (_req.path.startsWith('/auth') || _req.path.startsWith('/invites') || _req.path.startsWith('/projects') || _req.path.startsWith('/tasks') || _req.path.startsWith('/users')) {
+    if (apiPrefixes.some((p) => _req.path.startsWith(p))) {
       return next();
     }
     return res.sendFile(path.join(frontendDistPath, 'index.html'));

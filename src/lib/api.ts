@@ -1,43 +1,42 @@
-import axios, { AxiosError } from "axios";
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { toast } from "sonner";
 
 export const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
   (import.meta.env.PROD ? "" : "http://localhost:4000");
 
-export const TOKEN_KEY = "teamflow_token";
-
 export const api = axios.create({
   baseURL: API_URL,
   headers: { "Content-Type": "application/json" },
+  // Sends the HttpOnly refresh-token cookie on every request (needed for
+  // /auth/refresh and /auth/logout); every other route ignores it.
+  withCredentials: true,
 });
 
-// --- Auth token helpers ---
-// "Remember me" controls whether the token survives closing the browser
-// (localStorage) or only the current tab session (sessionStorage).
+// The access token lives in memory only — never localStorage/sessionStorage —
+// so it isn't readable by an XSS payload that persists across page loads.
+// Session persistence ("remember me") comes from the HttpOnly refresh cookie
+// instead, restored via a silent /auth/refresh call on app load.
+let accessToken: string | null = null;
+
 export function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return accessToken;
 }
 
-export function setToken(token: string | null, remember = true) {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
-    if (token) (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
-  } catch {
-    /* noop */
-  }
+export function setToken(token: string | null) {
+  accessToken = token;
 }
 
-// --- Interceptors ---
+function unwrapEnvelope(data: unknown): unknown {
+  if (data && typeof data === "object" && "success" in data && "data" in data) {
+    return (data as { data: unknown }).data;
+  }
+  return data;
+}
+
 api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token && config.headers) {
-    config.headers.set("Authorization", `Bearer ${token}`);
+  if (accessToken && config.headers) {
+    config.headers.set("Authorization", `Bearer ${accessToken}`);
   }
   return config;
 });
@@ -47,25 +46,67 @@ export function setOnUnauthorized(handler: (() => void) | null) {
   onUnauthorized = handler;
 }
 
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshPromise) {
+    refreshPromise = axios
+      .post(`${API_URL}/auth/refresh`, null, { withCredentials: true })
+      .then((r) => {
+        const body = unwrapEnvelope(r.data) as { token?: string } | null;
+        accessToken = body?.token ?? null;
+        return accessToken;
+      })
+      .catch(() => {
+        accessToken = null;
+        return null;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+const AUTH_ENDPOINTS_NO_RETRY = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/login/verify-2fa"];
+
 api.interceptors.response.use(
   (r) => {
-    // Unwrap consistent envelope { success, data, message } if present.
-    // Falls back to raw payload for backwards-compat.
-    const body = r.data;
-    if (body && typeof body === "object" && "success" in body && "data" in body) {
-      r.data = (body as { data: unknown }).data;
-    }
+    r.data = unwrapEnvelope(r.data);
     return r;
   },
-  (error: AxiosError<{ error?: string; message?: string }>) => {
+  async (error: AxiosError<{ error?: string; message?: string }>) => {
     const status = error.response?.status;
+    const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
+    const url = originalRequest?.url || "";
+    const isAuthNoRetry = AUTH_ENDPOINTS_NO_RETRY.some((p) => url.includes(p));
+
+    if (status === 401 && originalRequest && !originalRequest._retry && !isAuthNoRetry) {
+      originalRequest._retry = true;
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        originalRequest.headers = originalRequest.headers ?? ({} as InternalAxiosRequestConfig["headers"]);
+        originalRequest.headers.set?.("Authorization", `Bearer ${newToken}`);
+        return api(originalRequest);
+      }
+      accessToken = null;
+      onUnauthorized?.();
+      return Promise.reject(error);
+    }
+
     if (status === 401) {
-      setToken(null);
+      accessToken = null;
       onUnauthorized?.();
     }
     return Promise.reject(error);
   }
 );
+
+// Attempts to restore a session from the refresh cookie (called once on app
+// load, since the access token itself never survives a page reload).
+export async function silentRefresh(): Promise<string | null> {
+  return refreshAccessToken();
+}
 
 // --- Error message extraction ---
 export function apiErrorMessage(err: unknown, fallback = "Something went wrong"): string {

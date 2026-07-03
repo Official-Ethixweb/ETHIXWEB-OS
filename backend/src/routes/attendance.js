@@ -12,7 +12,13 @@ router.use(requireAuth);
 
 const HR_ROLES = ['superadmin', 'owner', 'hr', 'manager'];
 
-router.get('/', async (req, res, next) => {
+const listQuerySchema = z.object({
+  employee: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+
+router.get('/', validate(listQuerySchema, 'query'), async (req, res, next) => {
   try {
     const { employee, from, to } = req.query;
     const filter = { organization: req.organizationId };
@@ -27,8 +33,10 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+const summaryQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(90).optional() });
+
 // --- Dashboard: daily trend + attendance/leave % over the last N days ---
-router.get('/summary', async (req, res, next) => {
+router.get('/summary', validate(summaryQuerySchema, 'query'), async (req, res, next) => {
   try {
     const days = Math.min(90, Math.max(1, Number(req.query.days) || 14));
     const since = new Date();

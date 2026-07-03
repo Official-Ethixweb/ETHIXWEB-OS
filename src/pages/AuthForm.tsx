@@ -9,14 +9,13 @@ import { LogoReveal } from "@/components/LogoReveal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api";
 import { getPasswordStrength } from "@/lib/password";
-import { Eye, EyeOff, Loader2, Check, Shield, Sparkles, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, Loader2, Check, Shield, Sparkles, ArrowLeft, ShieldCheck } from "lucide-react";
 import { CursorSpotlight } from "@/components/CursorSpotlight";
 import { FloatingParticles } from "@/components/FloatingParticles";
 import { MiniProductPreview } from "@/components/MiniProductPreview";
@@ -63,10 +62,9 @@ export function AuthForm({ mode }: AuthFormProps) {
   const reduceMotion = useReducedMotion();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { login, signup } = useAuth();
+  const { login, verifyTwoFactorLogin, signup } = useAuth();
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [organizationName, setOrganizationName] = useState("");
-  const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -75,6 +73,8 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
 
   const isSignup = mode === "signup";
   const inviteToken = isSignup ? searchParams.get("invite") : null;
@@ -123,18 +123,43 @@ export function AuthForm({ mode }: AuthFormProps) {
     setErrors({});
     setLoading(true);
     try {
-      const user = isSignup
-        ? await signup(
-            form.name,
-            form.email,
-            form.password,
-            inviteToken ? { mode: "join_invite", inviteToken } : { mode: "create_org", organizationName }
-          )
-        : await login(form.email, form.password, remember);
-      toast.success(isSignup ? `Welcome, ${user.name}!` : `Welcome back, ${user.name}!`);
+      if (isSignup) {
+        const user = await signup(
+          form.name,
+          form.email,
+          form.password,
+          inviteToken ? { mode: "join_invite", inviteToken } : { mode: "create_org", organizationName }
+        );
+        toast.success(`Welcome, ${user.name}!`);
+        navigate("/app");
+        return;
+      }
+      const result = await login(form.email, form.password);
+      if (result.mfaRequired) {
+        setMfaToken(result.mfaToken);
+        return;
+      }
+      toast.success(`Welcome back, ${result.user.name}!`);
       navigate("/app");
     } catch (err) {
       toast.error(apiErrorMessage(err, isSignup ? "Could not create account" : "Could not sign in"));
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaToken || mfaCode.trim().length < 6) return;
+    setLoading(true);
+    try {
+      const user = await verifyTwoFactorLogin(mfaToken, mfaCode.trim());
+      toast.success(`Welcome back, ${user.name}!`);
+      navigate("/app");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Invalid code"));
       setShake(true);
       setTimeout(() => setShake(false), 500);
     } finally {
@@ -277,6 +302,56 @@ export function AuthForm({ mode }: AuthFormProps) {
           </div>
           <div className="gradient-border rounded-3xl p-1 shadow-elevated hover:shadow-glow transition-shadow duration-500">
             <div className="rounded-[1.4rem] glass-strong p-8 md:p-12">
+              {mfaToken ? (
+                <>
+                  <div className="mx-auto h-12 w-12 rounded-full bg-primary/15 text-primary grid place-items-center">
+                    <ShieldCheck className="h-6 w-6" />
+                  </div>
+                  <h1 className="text-3xl font-bold tracking-tight text-center mt-4">Two-factor code</h1>
+                  <p className="text-sm text-muted-foreground mt-2 text-center">
+                    Enter the 6-digit code from your authenticator app, or one of your backup codes.
+                  </p>
+                  <form onSubmit={onMfaSubmit} className="space-y-5 mt-8">
+                    <div>
+                      <Label htmlFor="mfa-code">Verification code</Label>
+                      <Input
+                        id="mfa-code"
+                        value={mfaCode}
+                        onChange={(e) => setMfaCode(e.target.value)}
+                        placeholder="000000"
+                        className="mt-1.5 bg-secondary/40 border-border/60 h-12 text-base text-center tracking-[0.3em]"
+                        autoComplete="one-time-code"
+                        autoFocus
+                        maxLength={10}
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={loading || mfaCode.trim().length < 6}
+                      className="w-full h-12 text-base bg-gradient-primary hover:opacity-90 text-primary-foreground shadow-glow"
+                    >
+                      {loading ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Verifying...
+                        </span>
+                      ) : (
+                        "Verify"
+                      )}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMfaToken(null);
+                        setMfaCode("");
+                      }}
+                      className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Back to sign in
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <>
               <h1 className="text-3xl font-bold tracking-tight text-center">{isSignup ? "Create your account" : "Welcome back"}</h1>
               <p className="text-sm text-muted-foreground mt-2 text-center">
                 {isSignup ? "Set up your ETHIXWEB OS workspace in 60 seconds." : "Sign in to continue to ETHIXWEB OS."}
@@ -434,13 +509,6 @@ export function AuthForm({ mode }: AuthFormProps) {
                   )}
                 </motion.div>
 
-                {!isSignup && (
-                  <motion.label variants={fieldVariants} className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-                    <Checkbox checked={remember} onCheckedChange={(v) => setRemember(v === true)} />
-                    Remember me
-                  </motion.label>
-                )}
-
                 <motion.div variants={fieldVariants} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}>
                   <Button
                     type="submit"
@@ -463,6 +531,8 @@ export function AuthForm({ mode }: AuthFormProps) {
                   <>New to ETHIXWEB OS? <Link to="/signup" className="text-primary-glow hover:underline">Create an account</Link></>
                 )}
               </div>
+                </>
+              )}
             </div>
           </div>
         </motion.div>

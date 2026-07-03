@@ -25,6 +25,7 @@ import {
   Search,
   Server as ServerIcon,
   Settings,
+  ShieldCheck,
   Store,
   Trash2,
   UserPlus,
@@ -414,6 +415,7 @@ export default function AppLayout() {
                 )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/app/security")}><ShieldCheck className="h-4 w-4 mr-2" />Security</DropdownMenuItem>
               <DropdownMenuItem><Settings className="h-4 w-4 mr-2" />Settings</DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleLogout}

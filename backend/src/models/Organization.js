@@ -15,6 +15,9 @@ const OrganizationSchema = new mongoose.Schema(
     plan: { type: String, enum: ['free', 'trial', 'paid'], default: 'free' },
     status: { type: String, enum: ['active', 'suspended'], default: 'active', index: true },
     employeeIdSeq: { type: Number, default: 0 },
+    // Optional per-org IP allowlist. Empty array = disabled (allow all).
+    // Entries are exact IPs or CIDR blocks, matched in middleware/auth.js.
+    ipAllowlist: { type: [String], default: [] },
   },
   { timestamps: true }
 );

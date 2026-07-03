@@ -8,6 +8,8 @@ const { requireAuth, requireCompanyRole } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { ok, ApiError } = require('../utils/respond');
 const { mountCrudExtensions, archivedFilter } = require('../utils/crudExtensions');
+const { logAudit } = require('../utils/audit');
+const { writeLimiter, exportLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -20,8 +22,14 @@ async function canViewPayslip(req, payslip) {
   return !!employee?.user && String(employee.user) === req.user.id;
 }
 
+const listQuerySchema = z.object({
+  employee: z.string().regex(/^[0-9a-fA-F]{24}$/).optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  archived: z.string().optional(),
+});
+
 // --- List (self sees own, finance roles see all / filtered) ---
-router.get('/', async (req, res, next) => {
+router.get('/', validate(listQuerySchema, 'query'), async (req, res, next) => {
   try {
     const { employee, month } = req.query;
     const filter = { organization: req.organizationId, archived: archivedFilter(req) };
@@ -40,8 +48,10 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+const trendQuerySchema = z.object({ months: z.coerce.number().int().min(1).max(24).optional() });
+
 // --- Dashboard: net pay + base salary totals per month, last N months ---
-router.get('/trend', requireCompanyRole(FINANCE_ROLES), async (req, res, next) => {
+router.get('/trend', requireCompanyRole(FINANCE_ROLES), validate(trendQuerySchema, 'query'), async (req, res, next) => {
   try {
     const months = Math.min(24, Math.max(1, Number(req.query.months) || 12));
     const since = new Date();
@@ -83,7 +93,7 @@ router.get('/:id', async (req, res, next) => {
 const generateSchema = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/, 'month must be YYYY-MM') });
 
 // --- Bulk-generate payslips for all active employees for a month (idempotent) ---
-router.post('/generate', requireCompanyRole(FINANCE_ROLES), validate(generateSchema), async (req, res, next) => {
+router.post('/generate', writeLimiter, requireCompanyRole(FINANCE_ROLES), validate(generateSchema), async (req, res, next) => {
   try {
     const { month } = req.body;
     const employees = await Employee.find({ status: 'active', organization: req.organizationId }).lean();
@@ -103,6 +113,7 @@ router.post('/generate', requireCompanyRole(FINANCE_ROLES), validate(generateSch
       created++;
     }
     const payslips = await Payslip.find({ month, organization: req.organizationId }).populate('employee', 'name employeeId department').lean();
+    await logAudit(req, 'payroll.generate', 'Payslip', null, { month, created, skipped });
     return ok(res, { payslips, created, skipped }, `Generated ${created} payslip(s) for ${month}`);
   } catch (e) { next(e); }
 });
@@ -131,6 +142,7 @@ router.post('/:id/mark-paid', requireCompanyRole(FINANCE_ROLES), async (req, res
     payslip.paymentStatus = 'paid';
     payslip.paidAt = new Date();
     await payslip.save();
+    await logAudit(req, 'payroll.mark_paid', 'Payslip', payslip._id, { month: payslip.month, netPay: payslip.netPay });
     return ok(res, { payslip }, 'Marked as paid');
   } catch (e) { next(e); }
 });
@@ -139,12 +151,13 @@ router.delete('/:id', requireCompanyRole(FINANCE_ROLES), async (req, res, next) 
   try {
     const payslip = await Payslip.findOneAndDelete({ _id: req.params.id, organization: req.organizationId });
     if (!payslip) throw new ApiError('Payslip not found', 404);
+    await logAudit(req, 'payroll.delete', 'Payslip', payslip._id, { month: payslip.month });
     return ok(res, null, 'Payslip deleted');
   } catch (e) { next(e); }
 });
 
 // --- PDF payslip ---
-router.get('/:id/pdf', async (req, res, next) => {
+router.get('/:id/pdf', exportLimiter, async (req, res, next) => {
   try {
     const payslip = await Payslip.findOne({ _id: req.params.id, organization: req.organizationId }).populate('employee', 'name employeeId department designation');
     if (!payslip) throw new ApiError('Payslip not found', 404);

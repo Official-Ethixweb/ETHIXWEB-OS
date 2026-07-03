@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { encryptField } = require('../utils/encryption');
 
 const DocumentSchema = new mongoose.Schema(
   { type: { type: String, required: true }, url: { type: String, required: true }, uploadedAt: { type: Date, default: Date.now } },
@@ -44,10 +45,14 @@ const EmployeeSchema = new mongoose.Schema(
       currency: { type: String, default: 'INR' },
     },
     salaryHistory: { type: [SalaryHistorySchema], default: [] },
+    // Encrypted at rest (AES-256-GCM) — `set` runs on every write regardless of
+    // whether reads use `.lean()`; callers must explicitly `decryptField()`
+    // when returning these to an authorized consumer (see sanitizeEmployee in
+    // routes/employees.js).
     bankDetails: {
-      accountNumber: { type: String, default: '' },
-      ifsc: { type: String, default: '' },
-      upi: { type: String, default: '' },
+      accountNumber: { type: String, default: '', set: encryptField },
+      ifsc: { type: String, default: '', set: encryptField },
+      upi: { type: String, default: '', set: encryptField },
     },
     documents: { type: [DocumentSchema], default: [] },
     emergencyContact: {

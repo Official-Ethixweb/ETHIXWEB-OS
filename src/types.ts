@@ -29,6 +29,8 @@ export interface User {
   avatarColor: string;
   companyRole?: CompanyRole;
   organization?: Organization;
+  twoFactorEnabled?: boolean;
+  emailVerified?: boolean;
 }
 
 export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
