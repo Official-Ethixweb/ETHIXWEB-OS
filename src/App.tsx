@@ -17,6 +17,7 @@ import { ASSET_COMPANY_ROLES, FINANCE_COMPANY_ROLES, OPS_COMPANY_ROLES, OWNER_CO
 // most common first paint), lazy-load everything behind auth/navigation so
 // the initial bundle stays small.
 const AuthForm = lazy(() => import("@/pages/AuthForm").then((m) => ({ default: m.AuthForm })));
+const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const AppLayout = lazy(() => import("@/layouts/AppLayout"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Projects = lazy(() => import("@/pages/Projects"));
@@ -67,6 +68,7 @@ const App = () => (
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<AuthForm mode="login" />} />
                 <Route path="/signup" element={<AuthForm mode="signup" />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route
                   path="/app"
                   element={

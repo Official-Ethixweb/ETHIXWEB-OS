@@ -35,4 +35,13 @@ export const authApi = {
       /* ignore */
     }
   },
+  async deleteAccount(password: string): Promise<void> {
+    await api.delete("/auth/me", { data: { password } });
+  },
+  async forgotPassword(email: string): Promise<void> {
+    await api.post("/auth/forgot-password", { email });
+  },
+  async resetPassword(token: string, password: string): Promise<void> {
+    await api.post("/auth/reset-password", { token, password });
+  },
 };

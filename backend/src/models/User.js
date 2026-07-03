@@ -26,6 +26,8 @@ const UserSchema = new mongoose.Schema(
       enum: ['superadmin', 'owner', 'hr', 'finance', 'manager', 'developer', 'designer', 'qa', 'employee', 'viewer'],
       default: 'employee',
     },
+    resetTokenHash: { type: String, default: null, index: true },
+    resetTokenExpires: { type: Date, default: null },
   },
   { timestamps: true }
 );
@@ -41,6 +43,8 @@ UserSchema.statics.hashPassword = function (plain) {
 UserSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.passwordHash;
+    delete ret.resetTokenHash;
+    delete ret.resetTokenExpires;
     delete ret.__v;
     return ret;
   },

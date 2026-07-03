@@ -3,6 +3,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { invitesApi } from "@/api/invites";
+import { authApi } from "@/api/auth";
 import { Logo } from "@/components/Logo";
 import { LogoReveal } from "@/components/LogoReveal";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api";
 import { getPasswordStrength } from "@/lib/password";
-import { Eye, EyeOff, Loader2, Check, Shield, Sparkles } from "lucide-react";
+import { Eye, EyeOff, Loader2, Check, Shield, Sparkles, ArrowLeft } from "lucide-react";
 import { CursorSpotlight } from "@/components/CursorSpotlight";
 import { FloatingParticles } from "@/components/FloatingParticles";
 import { MiniProductPreview } from "@/components/MiniProductPreview";
@@ -71,6 +72,9 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [loading, setLoading] = useState(false);
   const [shake, setShake] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   const isSignup = mode === "signup";
   const inviteToken = isSignup ? searchParams.get("invite") : null;
@@ -135,6 +139,31 @@ export function AuthForm({ mode }: AuthFormProps) {
       setTimeout(() => setShake(false), 500);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onForgotOpenChange = (open: boolean) => {
+    setForgotOpen(open);
+    if (!open) {
+      setForgotEmail("");
+      setForgotSent(false);
+    }
+  };
+
+  const onForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail)) {
+      toast.error("Enter a valid email");
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      await authApi.forgotPassword(forgotEmail);
+      setForgotSent(true);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not send reset link"));
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -224,8 +253,17 @@ export function AuthForm({ mode }: AuthFormProps) {
           <CursorSpotlight size={500} />
           <FloatingParticles count={16} />
         </div>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }} className="absolute top-6 left-6 lg:hidden">
-          <Link to="/"><Logo /></Link>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }} className="absolute top-6 left-6 z-10 flex items-center gap-4">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to home
+          </Link>
+          <span className="lg:hidden">
+            <Link to="/"><Logo /></Link>
+          </span>
         </motion.div>
 
         <motion.div
@@ -430,17 +468,41 @@ export function AuthForm({ mode }: AuthFormProps) {
         </motion.div>
       </div>
 
-      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+      <Dialog open={forgotOpen} onOpenChange={onForgotOpenChange}>
         <DialogContent className="glass-strong border-border/60 max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-accent" /> Reset your password</DialogTitle>
             <DialogDescription>
-              Self-service password reset isn't enabled yet. Ask your workspace admin or HR to reset it for you from the Employees directory.
+              {forgotSent
+                ? "If an account exists for that email, we've sent a reset link. It expires in 15 minutes."
+                : "Enter your work email and we'll send you a link to reset your password."}
             </DialogDescription>
           </DialogHeader>
-          <Button onClick={() => setForgotOpen(false)} className="w-full bg-gradient-primary text-primary-foreground">
-            Got it
-          </Button>
+          {forgotSent ? (
+            <Button onClick={() => onForgotOpenChange(false)} className="w-full bg-gradient-primary text-primary-foreground">
+              Got it
+            </Button>
+          ) : (
+            <form onSubmit={onForgotSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="forgot-email">Work email</Label>
+                <Input
+                  id="forgot-email"
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  placeholder="you@ethixweb.com"
+                  className="mt-1.5 bg-secondary/40 border-border/60 h-11"
+                  autoComplete="email"
+                  autoFocus
+                />
+              </div>
+              <Button type="submit" disabled={forgotLoading} className="w-full bg-gradient-primary text-primary-foreground">
+                {forgotLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                Send reset link
+              </Button>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

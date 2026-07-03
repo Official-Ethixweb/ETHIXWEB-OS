@@ -26,6 +26,7 @@ import {
   Server as ServerIcon,
   Settings,
   Store,
+  Trash2,
   UserPlus,
   Users,
   Wallet,
@@ -61,6 +62,7 @@ import { useEmployeeNotifications } from "@/hooks/useEmployeeNotifications";
 import { useRenewalNotifications } from "@/hooks/useRenewalNotifications";
 import { usePayrollNotifications } from "@/hooks/usePayrollNotifications";
 import { CommandPalette } from "@/components/CommandPalette";
+import { DeleteAccountDialog } from "@/components/DeleteAccountDialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useRecentlyVisited } from "@/hooks/useRecentlyVisited";
 import { usePinnedProjects } from "@/hooks/usePinnedProjects";
@@ -98,6 +100,7 @@ export default function AppLayout() {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ew_sidebar_collapsed") === "1");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
 
   const canFinance = !!me?.companyRole && FINANCE_COMPANY_ROLES.includes(me.companyRole);
   const canOps = !!me?.companyRole && OPS_COMPANY_ROLES.includes(me.companyRole);
@@ -230,12 +233,18 @@ export default function AppLayout() {
               </div>
             </>
           )}
-          <div className="p-3 border-t border-border/60 mt-auto">
+          <div className="p-3 border-t border-border/60 mt-auto space-y-1">
             <button
               onClick={handleLogout}
               className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-destructive hover:bg-destructive/10 transition-colors"
             >
               <LogOut className="h-4 w-4" /> Log out
+            </button>
+            <button
+              onClick={() => setDeleteAccountOpen(true)}
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" /> Delete account
             </button>
           </div>
         </SheetContent>
@@ -412,10 +421,19 @@ export default function AppLayout() {
               >
                 <LogOut className="h-4 w-4 mr-2" />Log out
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setDeleteAccountOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />Delete account
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </motion.aside>
+
+      <DeleteAccountDialog open={deleteAccountOpen} onOpenChange={setDeleteAccountOpen} />
 
       {/* Main */}
       <main className="flex-1 min-w-0 flex flex-col">
