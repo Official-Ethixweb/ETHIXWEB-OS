@@ -23,6 +23,13 @@ export default defineConfig(({ mode }) => ({
   build: {
     assetsDir: "static",
   },
+  // Some CommonJS-authored deps (react-grid-layout's vendored drag helper)
+  // assume a Node-style `process.env.NODE_ENV` exists, which Vite doesn't
+  // polyfill in the browser by default — define it explicitly rather than
+  // let those code paths throw "process is not defined" at runtime.
+  define: {
+    "process.env.NODE_ENV": JSON.stringify(mode === "production" ? "production" : "development"),
+  },
   plugins: [react()],
   resolve: {
     alias: {
