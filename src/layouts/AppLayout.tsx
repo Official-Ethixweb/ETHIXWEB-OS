@@ -71,29 +71,31 @@ import { useLiveClock } from "@/hooks/useLiveClock";
 
 const baseNav = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/app/projects", label: "Projects", icon: FolderKanban },
-  { to: "/app/employees", label: "Employees", icon: Users },
-  { to: "/app/departments", label: "Departments", icon: Building2 },
+  { to: "/app/projects", label: "Projects", icon: FolderKanban, module: "projects" },
+  { to: "/app/employees", label: "Employees", icon: Users, module: "employees" },
+  { to: "/app/departments", label: "Departments", icon: Building2, module: "departments" },
 ];
 
 const financeNav = [
-  { to: "/app/payroll", label: "Payroll", icon: Wallet },
-  { to: "/app/finance", label: "Finance", icon: DollarSign },
+  { to: "/app/payroll", label: "Payroll", icon: Wallet, module: "payroll" },
+  { to: "/app/finance", label: "Finance", icon: DollarSign, module: "finance" },
 ];
 
 const opsNav = [
-  { to: "/app/subscriptions", label: "Subscriptions", icon: CreditCard },
-  { to: "/app/domains", label: "Domains", icon: Globe },
-  { to: "/app/servers", label: "Servers", icon: ServerIcon },
-  { to: "/app/clients", label: "Clients", icon: Briefcase },
-  { to: "/app/vendors", label: "Vendors", icon: Store },
+  { to: "/app/subscriptions", label: "Subscriptions", icon: CreditCard, module: "subscriptions" },
+  { to: "/app/domains", label: "Domains", icon: Globe, module: "domains" },
+  { to: "/app/servers", label: "Servers", icon: ServerIcon, module: "servers" },
+  { to: "/app/clients", label: "Clients", icon: Briefcase, module: "clients" },
+  { to: "/app/vendors", label: "Vendors", icon: Store, module: "vendors" },
 ];
 
-const assetsNav = [{ to: "/app/assets", label: "Assets", icon: Laptop }];
+const assetsNav = [{ to: "/app/assets", label: "Assets", icon: Laptop, module: "assets" }];
 
 const ownerNav = [{ to: "/app/team", label: "Team", icon: UserPlus }];
 
-const adminNav = [{ to: "/app/admin/roles", label: "Roles & Permissions", icon: ShieldCheck }];
+const rolesAdminNav = [{ to: "/app/admin/roles", label: "Roles & Permissions", icon: ShieldCheck }];
+const orgSettingsNav = [{ to: "/app/admin/settings", label: "Settings", icon: Settings }];
+const auditLogNav = [{ to: "/app/admin/audit-log", label: "Audit Log", icon: History }];
 
 export default function AppLayout() {
   const { user: me, logout } = useAuth();
@@ -110,16 +112,28 @@ export default function AppLayout() {
   const canAssets = perms.includes('assets.view');
   const canOwner = perms.includes('invites.manage');
   const canManageRoles = perms.includes('roles.manage');
+  const canManageOrgSettings = perms.includes('organization.manage_settings');
+  const canViewAuditLog = perms.includes('audit_log.view');
+
+  const enabledModules = me?.organization?.enabledModules;
 
   const nav = useMemo(() => {
-    const items = [...baseNav];
+    let items = [...baseNav];
     if (canFinance) items.push(...financeNav);
     if (canOps) items.push(...opsNav);
     if (canAssets) items.push(...assetsNav);
     if (canOwner) items.push(...ownerNav);
-    if (canManageRoles) items.push(...adminNav);
+    if (canManageRoles) items.push(...rolesAdminNav);
+    if (canManageOrgSettings) items.push(...orgSettingsNav);
+    if (canViewAuditLog) items.push(...auditLogNav);
+    // Module visibility is an org-wide switch layered on top of per-role
+    // permissions — an item without a `module` key (Dashboard, Team, Admin)
+    // is core and always shown once its permission check above passes.
+    if (enabledModules) {
+      items = items.filter((item) => !("module" in item) || enabledModules.includes(item.module as never));
+    }
     return items;
-  }, [canFinance, canOps, canAssets, canOwner, canManageRoles]);
+  }, [canFinance, canOps, canAssets, canOwner, canManageRoles, canManageOrgSettings, canViewAuditLog, enabledModules]);
 
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -420,7 +434,6 @@ export default function AppLayout() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/app/security")}><ShieldCheck className="h-4 w-4 mr-2" />Security</DropdownMenuItem>
-              <DropdownMenuItem><Settings className="h-4 w-4 mr-2" />Settings</DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleLogout}
                 className="text-destructive focus:text-destructive"

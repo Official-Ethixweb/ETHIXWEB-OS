@@ -13,13 +13,27 @@ interface RawOrganization {
   id?: string;
   name?: string;
   slug?: string;
+  branding?: { logoUrl?: string; primaryColor?: string };
+  timezone?: string;
+  currency?: string;
+  enabledModules?: Organization["enabledModules"];
+  ipAllowlist?: string[];
 }
 
 export function normOrganization(raw: RawOrganization | string | null | undefined): Organization | undefined {
   if (!raw || typeof raw === "string") return undefined;
   const id = String(raw._id ?? raw.id ?? "");
   if (!id) return undefined;
-  return { id, name: raw.name ?? "", slug: raw.slug ?? "" };
+  return {
+    id,
+    name: raw.name ?? "",
+    slug: raw.slug ?? "",
+    branding: { logoUrl: raw.branding?.logoUrl ?? "", primaryColor: raw.branding?.primaryColor ?? "#8A181C" },
+    timezone: raw.timezone ?? "UTC",
+    currency: raw.currency ?? "USD",
+    enabledModules: raw.enabledModules,
+    ipAllowlist: raw.ipAllowlist ?? [],
+  };
 }
 
 interface RawUser {

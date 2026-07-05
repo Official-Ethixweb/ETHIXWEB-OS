@@ -135,7 +135,9 @@ async function issueSession(user, req, res) {
 // gating on the client can be permission-driven instead of re-hardcoding
 // company-role arrays there too.
 async function buildUserPayload(userId) {
-  const user = await User.findById(userId).populate('organization', 'name slug').populate('role', 'name permissions');
+  const user = await User.findById(userId)
+    .populate('organization', 'name slug branding timezone currency enabledModules')
+    .populate('role', 'name permissions');
   if (!user) return null;
   const permissions = await resolvePermissions({
     organizationId: String(user.organization?._id || user.organization),

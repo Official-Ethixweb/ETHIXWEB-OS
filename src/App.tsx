@@ -35,6 +35,8 @@ const Vendors = lazy(() => import("@/pages/Vendors"));
 const Departments = lazy(() => import("@/pages/Departments"));
 const Security = lazy(() => import("@/pages/Security"));
 const RolesAdmin = lazy(() => import("@/pages/RolesAdmin"));
+const OrgSettings = lazy(() => import("@/pages/OrgSettings"));
+const AuditLog = lazy(() => import("@/pages/AuditLog"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 function RouteFallback() {
@@ -95,6 +97,8 @@ const App = () => (
                   <Route path="departments" element={<Departments />} />
                   <Route path="security" element={<Security />} />
                   <Route path="admin/roles" element={<RequirePermission anyOf={["roles.manage"]}><RolesAdmin /></RequirePermission>} />
+                  <Route path="admin/settings" element={<RequirePermission anyOf={["organization.manage_settings"]}><OrgSettings /></RequirePermission>} />
+                  <Route path="admin/audit-log" element={<RequirePermission anyOf={["audit_log.view"]}><AuditLog /></RequirePermission>} />
                 </Route>
                 <Route path="/dashboard" element={<Navigate to="/app" replace />} />
                 <Route path="*" element={<NotFound />} />

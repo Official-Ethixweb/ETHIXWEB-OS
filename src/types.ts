@@ -13,10 +13,21 @@ export type CompanyRole =
   | "employee"
   | "viewer";
 
+export const TOGGLEABLE_MODULES = [
+  "projects", "employees", "departments", "payroll", "finance",
+  "subscriptions", "domains", "servers", "clients", "vendors", "assets",
+] as const;
+export type ToggleableModule = (typeof TOGGLEABLE_MODULES)[number];
+
 export interface Organization {
   id: string;
   name: string;
   slug: string;
+  branding?: { logoUrl: string; primaryColor: string };
+  timezone?: string;
+  currency?: string;
+  enabledModules?: ToggleableModule[];
+  ipAllowlist?: string[];
 }
 
 export interface User {
