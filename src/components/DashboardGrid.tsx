@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { GridLayout, useContainerWidth, type Layout } from "react-grid-layout";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { GridLayout, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import { useQuery } from "@tanstack/react-query";
 import { Copy, EyeOff, GripVertical, Loader2, Pencil, Plus, RotateCcw, X } from "lucide-react";
@@ -25,10 +25,45 @@ function defaultLayoutFor(registry: DashboardWidgetDef[]): LayoutItem[] {
   return registry.map((w) => ({ i: w.id, ...w.defaultLayout }));
 }
 
+// react-grid-layout's own useContainerWidth() measures the ref correctly but
+// its width *state* never actually leaves its initial default in practice
+// (verified live: containerRef.current.offsetWidth reports the real,
+// changing size on every render, yet the hook's returned `width` value
+// stays frozen) — so GridLayout always renders using the built-in 1280px
+// fallback, overflowing any narrower container. This local replacement does
+// the same job (measure + ResizeObserver), using a callback ref rather than
+// a plain ref + mount-only effect — this component has earlier conditional
+// returns (isLoading/isMobile), so the container div may not exist yet on
+// the very first commit, and a `useEffect(..., [])` would never re-fire
+// once it finally does.
+function useMeasuredWidth(fallback = 1280) {
+  const [width, setWidth] = useState(fallback);
+  const [mounted, setMounted] = useState(false);
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node) return;
+    setWidth(node.offsetWidth);
+    setMounted(true);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    observerRef.current = observer;
+  }, []);
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
+
+  return { width, containerRef, mounted };
+}
+
 export function DashboardGrid({ registry, content }: DashboardGridProps) {
   const registryById = useMemo(() => new Map(registry.map((w) => [w.id, w])), [registry]);
   const isMobile = useIsMobile();
-  const { width, containerRef, mounted } = useContainerWidth();
+  const { width, containerRef, mounted } = useMeasuredWidth();
   const [editMode, setEditMode] = useState(false);
   const [layout, setLayout] = useState<LayoutItem[]>(() => defaultLayoutFor(registry));
   const [hiddenWidgets, setHiddenWidgets] = useState<string[]>([]);
@@ -171,9 +206,16 @@ export function DashboardGrid({ registry, content }: DashboardGridProps) {
       <div ref={containerRef}>
         {mounted && (
           <GridLayout
+            // react-grid-layout doesn't reliably recompute each item's pixel
+            // width when the `width` prop changes after mount (verified: item
+            // styles stay frozen at the first measured width even after a
+            // live container resize) — keying on the measured width forces a
+            // clean remount so every item's position/size is recalculated
+            // from scratch instead of silently overflowing its container.
+            key={Math.round(width)}
             width={width}
             layout={layoutWithConstraints}
-            gridConfig={{ cols: 12, rowHeight: 30, margin: [16, 16], containerPadding: [0, 0], maxRows: Infinity }}
+            gridConfig={{ cols: 12, rowHeight: 34, margin: [16, 16], containerPadding: [0, 0], maxRows: Infinity }}
             dragConfig={{ enabled: editMode, handle: ".widget-drag-handle" }}
             resizeConfig={{ enabled: editMode }}
             onLayoutChange={onGridLayoutChange}

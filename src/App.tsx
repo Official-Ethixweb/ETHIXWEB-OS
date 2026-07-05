@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
+import { MotionConfig } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -67,6 +68,11 @@ const queryClient = new QueryClient({
 
 const App = () => (
   <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+    {/* Makes every Framer Motion animation in the app (orbs, page transitions,
+        sidebar collapse, etc.) respect the OS-level reduced-motion setting
+        automatically, instead of relying on each component to opt in via its
+        own useReducedMotion() check. */}
+    <MotionConfig reducedMotion="user">
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <NoiseOverlay />
@@ -131,6 +137,7 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
+    </MotionConfig>
   </ThemeProvider>
 );
 

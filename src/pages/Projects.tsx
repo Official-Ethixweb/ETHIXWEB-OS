@@ -110,13 +110,13 @@ export default function Projects() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
         <div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Projects</h1>
           <p className="text-muted-foreground mt-1">All the work, organized by team.</p>
         </div>
         <div className="flex gap-2 items-center">
-          <div className="relative flex-1 md:flex-initial md:w-64">
+          <div className="relative flex-1 lg:flex-initial lg:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               value={query}

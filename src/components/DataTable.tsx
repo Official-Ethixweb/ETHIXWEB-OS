@@ -144,7 +144,12 @@ export function DataTable<T>({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      {/* The toolbar's combined content (search/filters + CSV/Excel/Print)
+          doesn't fit on one row until there's real width to spare — at
+          exactly 768px (the old md: switch point) it overflowed the page
+          horizontally. lg: (1024px) is the first breakpoint with enough
+          room, so the toolbar stays stacked through the tablet range. */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div className="flex gap-2 items-center flex-wrap flex-1">{toolbarExtra}</div>
         <div className="flex gap-1.5 items-center">
           <Button
