@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Archive, ArchiveRestore, Copy, Loader2, Pencil, Plus, Search, Store, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Copy, Loader2, Pencil, Plus, Search, ShieldCheck, Store, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { vendorsApi, type VendorInput } from "@/api/vendors";
 import { useHasPermission } from "@/hooks/usePermission";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
+import { PortalAccessDialog } from "@/components/PortalAccessDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +54,7 @@ export default function Vendors() {
   const [editing, setEditing] = useState<Vendor | null>(null);
   const [editForm, setEditForm] = useState<VendorInput>(emptyForm);
   const [deleting, setDeleting] = useState<Vendor | null>(null);
+  const [portalAccessForId, setPortalAccessForId] = useState<string | null>(null);
 
   const { data: vendors = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["vendors", { archived: archivedView }],
@@ -173,6 +175,7 @@ export default function Vendors() {
   const rowActions = (): RowAction<Vendor>[] => canManage
     ? [
         { label: "Edit", icon: Pencil, onClick: openEdit, hidden: () => archivedView },
+        { label: "Portal access", icon: ShieldCheck, onClick: (r) => setPortalAccessForId(r.id), hidden: () => archivedView },
         { label: "Duplicate", icon: Copy, onClick: (r) => duplicateMutation.mutate(r.id), hidden: () => archivedView },
         archivedView
           ? { label: "Restore", icon: ArchiveRestore, onClick: (r) => vendorsApi.restore(r.id).then(invalidate) }
@@ -267,6 +270,13 @@ export default function Vendors() {
         title={`Remove ${deleting?.name ?? "this vendor"}?`}
         description="This permanently deletes the vendor record after a few seconds (undo from the toast)."
         onConfirm={() => deleting && doDelete(deleting)}
+      />
+
+      <PortalAccessDialog
+        type="vendor"
+        record={vendors.find((v) => v.id === portalAccessForId) ?? null}
+        onOpenChange={(open) => !open && setPortalAccessForId(null)}
+        invalidateKey="vendors"
       />
     </div>
   );

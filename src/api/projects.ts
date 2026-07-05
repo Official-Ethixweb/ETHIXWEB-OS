@@ -15,7 +15,7 @@ export const projectsApi = {
     const { data } = await api.post("/projects", input);
     return normProject(data.project);
   },
-  async update(projectId: string, input: { name?: string; description?: string; color?: string }): Promise<Project> {
+  async update(projectId: string, input: { name?: string; description?: string; color?: string; assignedVendor?: string | null; assignedClient?: string | null }): Promise<Project> {
     const { data } = await api.patch(`/projects/${projectId}`, input);
     return normProject(data.project);
   },

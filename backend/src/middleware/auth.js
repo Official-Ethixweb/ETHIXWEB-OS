@@ -1,29 +1,41 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Project = require('../models/Project');
+const Vendor = require('../models/Vendor');
+const Client = require('../models/Client');
 const { ApiError } = require('../utils/respond');
 const { isIpAllowed } = require('../utils/ipAllowlist');
 const { resolvePermissions } = require('../utils/rolePermissions');
 
+function verifyAccessToken(req) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) throw new ApiError('Authentication required', 401);
+  let payload;
+  try {
+    payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+  } catch {
+    throw new ApiError('Invalid or expired token', 401);
+  }
+  if (payload.type && payload.type !== 'access') throw new ApiError('Invalid or expired token', 401);
+  return payload;
+}
+
+// Every internal route (everything except routes/portal.js) uses this.
+// Rejects external portal users (userType 'vendor'/'client') outright —
+// they have no companyRole/permissions to speak of, so letting them past
+// here would mean falling through to whatever a route does next, which is
+// never correct for these accounts.
 async function requireAuth(req, _res, next) {
   try {
-    const header = req.headers.authorization || '';
-    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-    if (!token) throw new ApiError('Authentication required', 401);
-
-    let payload;
-    try {
-      payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    } catch {
-      throw new ApiError('Invalid or expired token', 401);
-    }
-    if (payload.type && payload.type !== 'access') throw new ApiError('Invalid or expired token', 401);
+    const payload = verifyAccessToken(req);
 
     const user = await User.findById(payload.sub)
       .populate('organization', 'ipAllowlist status')
       .populate('role', 'permissions')
       .lean();
     if (!user) throw new ApiError('User no longer exists', 401);
+    if (user.userType && user.userType !== 'staff') throw new ApiError('This account cannot access this area', 403);
     if (user.organization?.status === 'suspended') throw new ApiError('This workspace has been suspended', 403);
 
     if (!isIpAllowed(req.ip, user.organization?.ipAllowlist)) {
@@ -48,6 +60,53 @@ async function requireAuth(req, _res, next) {
   } catch (e) {
     next(e);
   }
+}
+
+// Used only by routes/portal.js. Accepts vendor/client userTypes (rejects
+// 'staff' — internal users use requireAuth + the app itself, not the
+// external portal), resolves the caller's Vendor or Client record, and
+// attaches its portalPermissions so portal routes can gate on them.
+async function requirePortalAuth(req, _res, next) {
+  try {
+    const payload = verifyAccessToken(req);
+
+    const user = await User.findById(payload.sub).populate('organization', 'name status').lean();
+    if (!user) throw new ApiError('User no longer exists', 401);
+    if (user.userType !== 'vendor' && user.userType !== 'client') {
+      throw new ApiError('This account does not have portal access', 403);
+    }
+    if (user.organization?.status === 'suspended') throw new ApiError('This workspace has been suspended', 403);
+
+    const Model = user.userType === 'vendor' ? Vendor : Client;
+    const record = await Model.findOne({ portalUser: user._id, portalEnabled: true }).lean();
+    if (!record) throw new ApiError('Portal access has been disabled for this account', 403);
+
+    req.organizationId = String(user.organization?._id || user.organization);
+    req.portal = {
+      type: user.userType,
+      recordId: String(record._id),
+      permissions: record.portalPermissions || [],
+    };
+    req.user = {
+      id: String(user._id),
+      email: user.email,
+      name: user.name,
+      organization: req.organizationId,
+      organizationName: user.organization?.name || '',
+    };
+    next();
+  } catch (e) {
+    next(e);
+  }
+}
+
+function requirePortalPermission(key) {
+  return (req, _res, next) => {
+    if (!req.portal?.permissions?.includes(key)) {
+      return next(new ApiError('You do not have permission to view this', 403));
+    }
+    next();
+  };
 }
 
 /**
@@ -119,4 +178,4 @@ function requireProjectRole(opts = {}) {
   };
 }
 
-module.exports = { requireAuth, requireProjectRole, requireCompanyRole, requirePermission };
+module.exports = { requireAuth, requireProjectRole, requireCompanyRole, requirePermission, requirePortalAuth, requirePortalPermission };

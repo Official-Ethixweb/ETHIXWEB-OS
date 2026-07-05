@@ -43,6 +43,10 @@ export interface User {
   // all nav/route/action gating on the client. Always present once loaded;
   // empty array for a role with no elevated grants.
   permissions?: string[];
+  // 'staff' (default) is an internal user of the main app; 'vendor'/'client'
+  // are external portal-only accounts (see routes/portal.js) that must be
+  // redirected to /portal instead of /app.
+  userType?: "staff" | "vendor" | "client";
 }
 
 export type PermissionKey = string;
@@ -92,6 +96,10 @@ export interface Project {
   ownerId?: string;
   owner?: User;
   members: Member[];
+  // Which vendor/client (if any) can see this project through their portal —
+  // see routes/portal.js. null means not shared with any external contact.
+  assignedVendor?: string | null;
+  assignedClient?: string | null;
 }
 
 export interface Task {
@@ -354,6 +362,9 @@ export interface Client {
   archived: boolean;
   archivedAt: string | null;
   createdAt: string;
+  portalEnabled: boolean;
+  portalHasAccount: boolean;
+  portalPermissions: string[];
 }
 
 // --- Vendors ---
@@ -373,6 +384,9 @@ export interface Vendor {
   archived: boolean;
   archivedAt: string | null;
   createdAt: string;
+  portalEnabled: boolean;
+  portalHasAccount: boolean;
+  portalPermissions: string[];
 }
 
 // --- Departments & Teams ---

@@ -38,6 +38,8 @@ const organizationRoutes = require('./routes/organizations');
 const roleRoutes = require('./routes/roles');
 const auditLogRoutes = require('./routes/auditLog');
 const dashboardLayoutRoutes = require('./routes/dashboardLayout');
+const portalRoutes = require('./routes/portal');
+const portalAdminRoutes = require('./routes/portalAdmin');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -159,11 +161,13 @@ app.use('/organizations', organizationRoutes);
 app.use('/roles', roleRoutes);
 app.use('/audit-log', auditLogRoutes);
 app.use('/dashboard-layout', dashboardLayoutRoutes);
+app.use('/portal', portalRoutes);
+app.use('/portal-admin', portalAdminRoutes);
 
 if (process.env.NODE_ENV === 'production') {
   const frontendDistPath = path.resolve(__dirname, '../../dist');
   app.use(express.static(frontendDistPath));
-  const apiPrefixes = ['/auth', '/invites', '/projects', '/tasks', '/users', '/files', '/organizations', '/roles', '/audit-log', '/dashboard-layout'];
+  const apiPrefixes = ['/auth', '/invites', '/projects', '/tasks', '/users', '/files', '/organizations', '/roles', '/audit-log', '/dashboard-layout', '/portal', '/portal-admin'];
   app.get('*', (_req, res, next) => {
     if (apiPrefixes.some((p) => _req.path.startsWith(p))) {
       return next();

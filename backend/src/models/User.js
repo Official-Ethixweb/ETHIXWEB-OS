@@ -24,6 +24,11 @@ const UserSchema = new mongoose.Schema(
     },
     passwordHash: { type: String, required: true },
     avatarColor: { type: String, default: randomColor },
+    // 'staff' = normal internal user, gated by companyRole/permissions below.
+    // 'vendor'/'client' = external portal-only user (see routes/portal.js) —
+    // never resolves internal permissions and is rejected by requireAuth on
+    // every non-portal route, regardless of companyRole (which they don't have).
+    userType: { type: String, enum: ['staff', 'vendor', 'client'], default: 'staff', index: true },
     companyRole: {
       type: String,
       enum: ['superadmin', 'owner', 'hr', 'finance', 'manager', 'developer', 'designer', 'qa', 'employee', 'viewer'],

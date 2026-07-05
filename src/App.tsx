@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { NoiseOverlay } from "@/components/NoiseOverlay";
 import Landing from "@/pages/Landing";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequirePortalAuth } from "@/components/RequirePortalAuth";
 import { RequirePermission } from "@/components/RequirePermission";
 import { AuthProvider } from "@/context/AuthContext";
 
@@ -37,6 +38,13 @@ const Security = lazy(() => import("@/pages/Security"));
 const RolesAdmin = lazy(() => import("@/pages/RolesAdmin"));
 const OrgSettings = lazy(() => import("@/pages/OrgSettings"));
 const AuditLog = lazy(() => import("@/pages/AuditLog"));
+const PortalLayout = lazy(() => import("@/layouts/PortalLayout"));
+const PortalOverview = lazy(() => import("@/pages/portal/PortalOverview"));
+const PortalTasks = lazy(() => import("@/pages/portal/PortalTasks"));
+const PortalDocuments = lazy(() => import("@/pages/portal/PortalDocuments"));
+const PortalInvoices = lazy(() => import("@/pages/portal/PortalInvoices"));
+const PortalMilestones = lazy(() => import("@/pages/portal/PortalMilestones"));
+const PortalAcceptInvite = lazy(() => import("@/pages/portal/PortalAcceptInvite"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 function RouteFallback() {
@@ -99,6 +107,21 @@ const App = () => (
                   <Route path="admin/roles" element={<RequirePermission anyOf={["roles.manage"]}><RolesAdmin /></RequirePermission>} />
                   <Route path="admin/settings" element={<RequirePermission anyOf={["organization.manage_settings"]}><OrgSettings /></RequirePermission>} />
                   <Route path="admin/audit-log" element={<RequirePermission anyOf={["audit_log.view"]}><AuditLog /></RequirePermission>} />
+                </Route>
+                <Route path="/portal/accept-invite" element={<PortalAcceptInvite />} />
+                <Route
+                  path="/portal"
+                  element={
+                    <RequirePortalAuth>
+                      <PortalLayout />
+                    </RequirePortalAuth>
+                  }
+                >
+                  <Route index element={<PortalOverview />} />
+                  <Route path="tasks" element={<PortalTasks />} />
+                  <Route path="documents" element={<PortalDocuments />} />
+                  <Route path="invoices" element={<PortalInvoices />} />
+                  <Route path="milestones" element={<PortalMilestones />} />
                 </Route>
                 <Route path="/dashboard" element={<Navigate to="/app" replace />} />
                 <Route path="*" element={<NotFound />} />

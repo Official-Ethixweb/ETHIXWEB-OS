@@ -25,6 +25,9 @@ import { format, isAfter } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
 import { projectsApi } from "@/api/projects";
 import { tasksApi, type CreateTaskInput, type UpdateTaskInput } from "@/api/tasks";
+import { vendorsApi } from "@/api/vendors";
+import { clientsApi } from "@/api/clients";
+import { useHasPermission } from "@/hooks/usePermission";
 import { apiErrorMessage } from "@/lib/api";
 import type { Priority, Project, Role, Status, Task } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -92,6 +95,11 @@ export default function ProjectDetail() {
   const role: Role | null = projectQuery.data?.role ?? null;
   const tasks = tasksQuery.data ?? [];
 
+  const canViewVendors = useHasPermission('vendors.view');
+  const canViewClients = useHasPermission('clients.view');
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors", { archived: false }], queryFn: () => vendorsApi.list({ archived: false }), enabled: canViewVendors });
+  const { data: clients = [] } = useQuery({ queryKey: ["clients", { archived: false }], queryFn: () => clientsApi.list({ archived: false }), enabled: canViewClients });
+
   const [activeId, setActiveId] = useState<string | null>(null);
   const [taskOpen, setTaskOpen] = useState(false);
   const [taskColumn, setTaskColumn] = useState<Status>("todo");
@@ -102,7 +110,7 @@ export default function ProjectDetail() {
   const [deletingTask, setDeletingTask] = useState<Task | null>(null);
   const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
   const [editProjectOpen, setEditProjectOpen] = useState(false);
-  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#6366F1" });
+  const [projectForm, setProjectForm] = useState({ name: "", description: "", color: "#6366F1", assignedVendor: null as string | null, assignedClient: null as string | null });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -233,7 +241,13 @@ export default function ProjectDetail() {
   const isMember = role === "member" || role === "admin";
 
   const openEditProject = () => {
-    setProjectForm({ name: project.name, description: project.description, color: project.color });
+    setProjectForm({
+      name: project.name,
+      description: project.description,
+      color: project.color,
+      assignedVendor: project.assignedVendor ?? null,
+      assignedClient: project.assignedClient ?? null,
+    });
     setEditProjectOpen(true);
   };
 
@@ -244,6 +258,8 @@ export default function ProjectDetail() {
       name: projectForm.name.trim(),
       description: projectForm.description.trim(),
       color: projectForm.color,
+      assignedVendor: projectForm.assignedVendor,
+      assignedClient: projectForm.assignedClient,
     });
   };
 
@@ -525,6 +541,40 @@ export default function ProjectDetail() {
                 ))}
               </div>
             </div>
+            {(canViewVendors || canViewClients) && (
+              <div className="grid grid-cols-2 gap-3">
+                {canViewVendors && (
+                  <div>
+                    <Label>Shared with vendor</Label>
+                    <Select
+                      value={projectForm.assignedVendor ?? "none"}
+                      onValueChange={(v) => setProjectForm((f) => ({ ...f, assignedVendor: v === "none" ? null : v }))}
+                    >
+                      <SelectTrigger className="mt-1.5 bg-secondary/40 border-border/60"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not shared</SelectItem>
+                        {vendors.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {canViewClients && (
+                  <div>
+                    <Label>Shared with client</Label>
+                    <Select
+                      value={projectForm.assignedClient ?? "none"}
+                      onValueChange={(v) => setProjectForm((f) => ({ ...f, assignedClient: v === "none" ? null : v }))}
+                    >
+                      <SelectTrigger className="mt-1.5 bg-secondary/40 border-border/60"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not shared</SelectItem>
+                        {clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
             <Button type="submit" disabled={updateProjectMutation.isPending} className="w-full bg-gradient-primary hover:opacity-90 text-primary-foreground">
               {updateProjectMutation.isPending ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Saving&hellip;</span> : "Save changes"}
             </Button>

@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Archive, ArchiveRestore, Briefcase, Copy, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Briefcase, Copy, Loader2, Pencil, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clientsApi, type ClientInput } from "@/api/clients";
 import { useHasPermission } from "@/hooks/usePermission";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useUndoableAction } from "@/hooks/useUndoableAction";
+import { PortalAccessDialog } from "@/components/PortalAccessDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,6 +54,7 @@ export default function Clients() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [editForm, setEditForm] = useState<ClientInput>(emptyForm);
   const [deleting, setDeleting] = useState<Client | null>(null);
+  const [portalAccessForId, setPortalAccessForId] = useState<string | null>(null);
 
   const { data: clients = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["clients", { archived: archivedView }],
@@ -167,6 +169,7 @@ export default function Clients() {
   const rowActions = (): RowAction<Client>[] => canManage
     ? [
         { label: "Edit", icon: Pencil, onClick: openEdit, hidden: () => archivedView },
+        { label: "Portal access", icon: ShieldCheck, onClick: (r) => setPortalAccessForId(r.id), hidden: () => archivedView },
         { label: "Duplicate", icon: Copy, onClick: (r) => duplicateMutation.mutate(r.id), hidden: () => archivedView },
         archivedView
           ? { label: "Restore", icon: ArchiveRestore, onClick: (r) => clientsApi.restore(r.id).then(invalidate) }
@@ -261,6 +264,13 @@ export default function Clients() {
         title={`Remove ${deleting?.name ?? "this client"}?`}
         description="This permanently deletes the client record after a few seconds (undo from the toast)."
         onConfirm={() => deleting && doDelete(deleting)}
+      />
+
+      <PortalAccessDialog
+        type="client"
+        record={clients.find((c) => c.id === portalAccessForId) ?? null}
+        onOpenChange={(open) => !open && setPortalAccessForId(null)}
+        invalidateKey="clients"
       />
     </div>
   );

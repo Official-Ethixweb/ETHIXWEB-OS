@@ -1,7 +1,6 @@
 const express = require('express');
-const { Readable } = require('stream');
-const { list } = require('@vercel/blob');
 const { requireAuth } = require('../middleware/auth');
+const { streamBlobByKey } = require('../utils/blobStream');
 const { ApiError } = require('../utils/respond');
 
 const router = express.Router();
@@ -12,6 +11,9 @@ router.use(requireAuth);
 // access, so the real access control now lives here: the org segment
 // embedded in the key (see uploadToBlob in middleware/upload.js) must match
 // the caller's own organization, or this 404s exactly like a nonexistent file.
+// Internal staff only — requireAuth rejects vendor/client accounts outright;
+// portal users download shared documents through GET /portal/documents/:id
+// instead, which scopes to the specific Document record they were granted.
 router.get('/*', async (req, res, next) => {
   try {
     const key = req.params[0];
@@ -22,17 +24,7 @@ router.get('/*', async (req, res, next) => {
       throw new ApiError('File not found', 404);
     }
 
-    const { blobs } = await list({ prefix: key, limit: 1 });
-    const blob = blobs.find((b) => b.pathname === key);
-    if (!blob) throw new ApiError('File not found', 404);
-
-    const upstream = await fetch(blob.url);
-    if (!upstream.ok || !upstream.body) throw new ApiError('File not found', 404);
-
-    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    Readable.fromWeb(upstream.body).pipe(res);
+    await streamBlobByKey(key, res);
   } catch (e) { next(e); }
 });
 

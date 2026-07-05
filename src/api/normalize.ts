@@ -47,6 +47,7 @@ interface RawUser {
   twoFactorEnabled?: boolean;
   emailVerified?: boolean;
   permissions?: string[];
+  userType?: User["userType"];
 }
 
 export function normUser(raw: RawUser | string | null | undefined): User | null {
@@ -66,6 +67,7 @@ export function normUser(raw: RawUser | string | null | undefined): User | null 
     twoFactorEnabled: raw.twoFactorEnabled ?? false,
     emailVerified: raw.emailVerified ?? false,
     permissions: raw.permissions ?? [],
+    userType: raw.userType ?? "staff",
   };
 }
 
@@ -111,6 +113,8 @@ interface RawProject {
   createdAt?: string;
   owner?: RawUser | string;
   members?: RawMember[];
+  assignedVendor?: string | null;
+  assignedClient?: string | null;
 }
 
 export function normProject(raw: RawProject): Project {
@@ -137,6 +141,8 @@ export function normProject(raw: RawProject): Project {
     ownerId: ownerUser?.id,
     owner: ownerUser ?? undefined,
     members,
+    assignedVendor: raw.assignedVendor ? String(raw.assignedVendor) : null,
+    assignedClient: raw.assignedClient ? String(raw.assignedClient) : null,
   };
 }
 
@@ -360,6 +366,9 @@ export function normClient(raw: any): Client {
     archived: raw.archived ?? false,
     archivedAt: raw.archivedAt ?? null,
     createdAt: raw.createdAt ?? new Date().toISOString(),
+    portalEnabled: raw.portalEnabled ?? false,
+    portalHasAccount: !!raw.portalUser,
+    portalPermissions: raw.portalPermissions ?? [],
   };
 }
 
@@ -379,6 +388,9 @@ export function normVendor(raw: any): Vendor {
     archived: raw.archived ?? false,
     archivedAt: raw.archivedAt ?? null,
     createdAt: raw.createdAt ?? new Date().toISOString(),
+    portalEnabled: raw.portalEnabled ?? false,
+    portalHasAccount: !!raw.portalUser,
+    portalPermissions: raw.portalPermissions ?? [],
   };
 }
 

@@ -2,7 +2,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Loader2 } from "lucide-react";
 
-export function RequireAuth({ children }: { children: React.ReactNode }) {
+export function RequirePortalAuth({ children }: { children: React.ReactNode }) {
   const { user, token, isLoading } = useAuth();
 
   if (isLoading) {
@@ -14,9 +14,8 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!token || !user) return <Navigate to="/login" replace />;
-  // Vendor/client portal accounts have no companyRole/permissions and no
-  // access to internal routes on the backend either — send them to their
-  // own shell instead of letting them land on a broken /app.
-  if (user.userType && user.userType !== "staff") return <Navigate to="/portal" replace />;
+  // A staff account has no business in the portal shell — send it to the
+  // main app instead of showing an empty/broken portal for it.
+  if (user.userType === "staff" || !user.userType) return <Navigate to="/app" replace />;
   return <>{children}</>;
 }

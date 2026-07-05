@@ -16,6 +16,10 @@ const ProjectSchema = new mongoose.Schema(
     color: { type: String, default: '#6366F1' },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     members: { type: [MemberSchema], default: [] },
+    // Optional links surfaced in the vendor/client portals (routes/portal.js)
+    // — a project assigned to a vendor/client shows up in their scoped view.
+    assignedVendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null, index: true },
+    assignedClient: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', default: null, index: true },
   },
   { timestamps: true }
 );

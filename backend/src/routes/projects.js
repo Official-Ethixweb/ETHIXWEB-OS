@@ -3,6 +3,8 @@ const { z } = require('zod');
 const Project = require('../models/Project');
 const Task = require('../models/Task');
 const User = require('../models/User');
+const Vendor = require('../models/Vendor');
+const Client = require('../models/Client');
 const { requireAuth, requireProjectRole } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { ok, ApiError } = require('../utils/respond');
@@ -65,10 +67,13 @@ router.post('/', validate(createSchema), async (req, res, next) => {
 });
 
 // --- Update (admin only) ---
+const objectIdOrNull = z.string().regex(/^[0-9a-fA-F]{24}$/).nullable();
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   description: z.string().max(500).optional(),
   color: z.string().regex(/^#?[0-9a-fA-F]{6}$/, 'Invalid color').optional(),
+  assignedVendor: objectIdOrNull.optional(),
+  assignedClient: objectIdOrNull.optional(),
 });
 
 router.patch(
@@ -77,6 +82,14 @@ router.patch(
   validate(updateSchema),
   async (req, res, next) => {
     try {
+      if (req.body.assignedVendor) {
+        const vendor = await Vendor.findOne({ _id: req.body.assignedVendor, organization: req.organizationId });
+        if (!vendor) throw new ApiError('Vendor not found', 404);
+      }
+      if (req.body.assignedClient) {
+        const client = await Client.findOne({ _id: req.body.assignedClient, organization: req.organizationId });
+        if (!client) throw new ApiError('Client not found', 404);
+      }
       Object.assign(req.project, req.body);
       await req.project.save();
       const populated = await populateProject(req.project._id);

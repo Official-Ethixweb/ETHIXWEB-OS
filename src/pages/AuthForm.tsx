@@ -140,7 +140,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         return;
       }
       toast.success(`Welcome back, ${result.user.name}!`);
-      navigate("/app");
+      navigate(result.user.userType && result.user.userType !== "staff" ? "/portal" : "/app");
     } catch (err) {
       toast.error(apiErrorMessage(err, isSignup ? "Could not create account" : "Could not sign in"));
       setShake(true);
@@ -157,7 +157,7 @@ export function AuthForm({ mode }: AuthFormProps) {
     try {
       const user = await verifyTwoFactorLogin(mfaToken, mfaCode.trim());
       toast.success(`Welcome back, ${user.name}!`);
-      navigate("/app");
+      navigate(user.userType && user.userType !== "staff" ? "/portal" : "/app");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Invalid code"));
       setShake(true);

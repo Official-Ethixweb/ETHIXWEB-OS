@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 import { authApi, type LoginResult, type SignupOptions } from "@/api/auth";
+import { portalApi } from "@/api/portal";
 import { getToken, setOnUnauthorized, silentRefresh } from "@/lib/api";
 import type { User } from "@/types";
 
@@ -29,12 +31,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // The access token is memory-only and never survives a reload, so on
   // mount we try to restore a session from the HttpOnly refresh cookie
   // instead — this is what "stay signed in" now means (see lib/api.ts).
+  // /auth/me is staff-only (requireAuth 403s vendor/client accounts), so a
+  // 403 here means this session belongs to a portal user — fall back to
+  // /portal/me rather than treating it as a failed restore.
   useEffect(() => {
     let active = true;
     silentRefresh()
       .then(async (t) => {
         if (!t) return;
-        const u = await authApi.me();
+        let u: User;
+        try {
+          u = await authApi.me();
+        } catch (e) {
+          if (e instanceof AxiosError && e.response?.status === 403) {
+            u = await portalApi.me();
+          } else {
+            throw e;
+          }
+        }
         if (active) {
           setTokenState(t);
           setUser(u);
@@ -60,17 +74,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setOnUnauthorized(null);
   }, [navigate, qc]);
 
+  // /auth/login resolves internal (companyRole/Role-based) permissions, which
+  // are empty for a portal account since it has neither — the real portal
+  // permission set lives on the Vendor/Client record, only exposed via
+  // /portal/me. Re-fetch it here so nav/route gating sees the right grants
+  // immediately, without waiting for a page reload to hit the silentRefresh
+  // fallback above.
+  const resolvePortalUserIfNeeded = async (u: User): Promise<User> =>
+    u.userType && u.userType !== "staff" ? portalApi.me() : u;
+
   const login = useCallback(async (email: string, password: string) => {
     const result = await authApi.login(email, password);
     if (!result.mfaRequired) {
+      const u = await resolvePortalUserIfNeeded(result.user);
       setTokenState(getToken());
-      setUser(result.user);
+      setUser(u);
+      return { ...result, user: u };
     }
     return result;
   }, []);
 
   const verifyTwoFactorLogin = useCallback(async (mfaToken: string, code: string) => {
-    const { user: u } = await authApi.verifyTwoFactorLogin(mfaToken, code);
+    const { user: rawUser } = await authApi.verifyTwoFactorLogin(mfaToken, code);
+    const u = await resolvePortalUserIfNeeded(rawUser);
     setTokenState(getToken());
     setUser(u);
     return u;

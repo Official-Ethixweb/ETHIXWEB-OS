@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { CLIENT_PORTAL_KEYS } = require('../config/portalPermissions');
 
 const ClientSchema = new mongoose.Schema(
   {
@@ -17,6 +18,18 @@ const ClientSchema = new mongoose.Schema(
     notes: { type: String, default: '', maxlength: 1000 },
     archived: { type: Boolean, default: false, index: true },
     archivedAt: { type: Date, default: null },
+
+    // Portal access — a client contact can optionally sign in to a scoped
+    // portal (see routes/portal.js). Disabled and empty by default.
+    portalUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    portalEnabled: { type: Boolean, default: false },
+    portalPermissions: {
+      type: [String],
+      default: [],
+      validate: { validator: (arr) => arr.every((p) => CLIENT_PORTAL_KEYS.includes(p)), message: 'Unknown portal permission key' },
+    },
+    portalInviteTokenHash: { type: String, default: null, index: true },
+    portalInviteExpires: { type: Date, default: null },
   },
   { timestamps: true }
 );
